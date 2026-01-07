@@ -1,0 +1,6 @@
+streamlit
+pandas
+python-pptx
+requests
+openpyxl
+lxml
