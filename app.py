@@ -20,15 +20,19 @@ st.write(
 st.sidebar.header("⚙️ Configuration")
 
 # Prefer secrets in production; fallback to text input for local testing
-try:
-    deepseek_api_key = st.secrets["api"]["deepseek_api_key"]
-    st.sidebar.write("✅ API Key loaded from secrets")
-except KeyError:
-    deepseek_api_key = st.sidebar.text_input(
+# Support both local nested secrets and Streamlit Cloud flat secrets
+deepseek_api_key = (
+    st.secrets.get("DEEPSEEK_API_KEY") or
+    st.secrets.get("api", {}).get("deepseek_api_key") or
+    st.sidebar.text_input(
         "DeepSeek API Key",
         type="password",
         help="Store this in Streamlit secrets for production use."
     )
+)
+
+if deepseek_api_key and not st.sidebar.text_input:
+    st.sidebar.write("✅ API Key loaded from secrets")
 
 st.sidebar.divider()
 
