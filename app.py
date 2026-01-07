@@ -276,7 +276,7 @@ if template_file and excel_file:
                                     new_run.font.bold = font.bold
                                 if font.italic is not None:
                                     new_run.font.italic = font.italic
-                                if font.color and font.color.rgb:
+                                if font.color and hasattr(font.color, 'rgb'):
                                     new_run.font.color.rgb = font.color.rgb
 
                                 # Paragraph alignment/level
