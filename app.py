@@ -861,11 +861,13 @@ if template_file and excel_file:
         # For multi-sheet, we don't need row selection
         row_data = None
         excel_columns = []
+        excel_format = 'hybrid'  # Track that we're using hybrid mode
         
     else:
         # Single sheet: use hybrid parser (reads both column and row formats)
         data_dict = parse_hybrid_excel(df)
         placeholder_mapping = create_placeholder_mapping()
+        excel_format = 'hybrid'  # Track that we're using hybrid mode
         
         st.info(f"📋 **Hybrid mode**: Reading both column headers and row-based Label/Value pairs")
         st.success(f"✅ Parsed {len(data_dict)} fields from Excel")
