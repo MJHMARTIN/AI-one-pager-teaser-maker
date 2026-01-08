@@ -190,26 +190,30 @@ def parse_multi_sheet_excel(excel_file, use_namespacing: bool = False) -> tuple:
         if df.empty:
             continue
         
-        # Detect format for this sheet
-        sheet_format = detect_excel_format(df)
-        
-        if sheet_format == 'row-based':
-            # Parse this sheet as row-based
+        # In multi-sheet mode, try to parse everything as row-based
+        # Assume first 2 columns are Label/Value even if auto-detection says otherwise
+        try:
             sheet_data = parse_row_based_excel(df, sheet_name, use_namespacing)
             
-            # Merge into unified dict (later sheets override earlier ones if no namespacing)
-            unified_data.update(sheet_data)
-            
+            if sheet_data:  # Only count if we got data
+                # Merge into unified dict (later sheets override earlier ones if no namespacing)
+                unified_data.update(sheet_data)
+                
+                sheet_info.append({
+                    'name': sheet_name,
+                    'format': 'row-based',
+                    'fields': len(sheet_data)
+                })
+            else:
+                sheet_info.append({
+                    'name': sheet_name,
+                    'format': 'empty or invalid',
+                    'fields': 0
+                })
+        except Exception as e:
             sheet_info.append({
                 'name': sheet_name,
-                'format': 'row-based',
-                'fields': len(sheet_data)
-            })
-        else:
-            # Column-based sheet - skip for now or treat first row as data
-            sheet_info.append({
-                'name': sheet_name,
-                'format': 'column-based (skipped)',
+                'format': f'error: {str(e)[:30]}',
                 'fields': 0
             })
     
