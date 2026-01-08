@@ -124,7 +124,7 @@ def detect_excel_format(df: pd.DataFrame) -> str:
     return 'column-based'
 
 
-def parse_row_based_excel(df: pd.DataFrame) -> dict:
+def parse_row_based_excel(df: pd.DataFrame, sheet_name: str = None, use_namespacing: bool = False) -> dict:
     """
     Parse row-based Excel format into a normalized key-value dictionary.
     
@@ -132,6 +132,11 @@ def parse_row_based_excel(df: pd.DataFrame) -> dict:
     - Column 0: Labels/Questions
     - Column 1: Values/Answers
     - Optional: Column 2+ for categories/sections
+    
+    Args:
+        df: DataFrame to parse
+        sheet_name: Name of the sheet (for namespacing)
+        use_namespacing: If True, prefix keys with sheet name (e.g., "financials.total_cost")
     
     Returns:
         dict: {normalized_label: value}
@@ -153,10 +158,62 @@ def parse_row_based_excel(df: pd.DataFrame) -> dict:
         # Normalize the label
         normalized = normalize_label(str(label))
         
+        # Add sheet namespacing if requested
+        if use_namespacing and sheet_name:
+            sheet_prefix = normalize_label(sheet_name)
+            normalized = f"{sheet_prefix}.{normalized}"
+        
         # Store the value (convert NaN to empty string)
         data_dict[normalized] = "" if pd.isna(value) else str(value)
     
     return data_dict
+
+
+def parse_multi_sheet_excel(excel_file, use_namespacing: bool = False) -> tuple:
+    """
+    Read all sheets from an Excel file and merge into unified knowledge base.
+    
+    Args:
+        excel_file: File-like object or path to Excel
+        use_namespacing: If True, prefix keys with sheet names
+    
+    Returns:
+        tuple: (unified_data_dict, sheet_info_list)
+    """
+    # Read all sheets
+    sheets_dict = pd.read_excel(excel_file, sheet_name=None)
+    
+    unified_data = {}
+    sheet_info = []
+    
+    for sheet_name, df in sheets_dict.items():
+        if df.empty:
+            continue
+        
+        # Detect format for this sheet
+        sheet_format = detect_excel_format(df)
+        
+        if sheet_format == 'row-based':
+            # Parse this sheet as row-based
+            sheet_data = parse_row_based_excel(df, sheet_name, use_namespacing)
+            
+            # Merge into unified dict (later sheets override earlier ones if no namespacing)
+            unified_data.update(sheet_data)
+            
+            sheet_info.append({
+                'name': sheet_name,
+                'format': 'row-based',
+                'fields': len(sheet_data)
+            })
+        else:
+            # Column-based sheet - skip for now or treat first row as data
+            sheet_info.append({
+                'name': sheet_name,
+                'format': 'column-based (skipped)',
+                'fields': 0
+            })
+    
+    return unified_data, sheet_info
 
 
 def fuzzy_match_label(target: str, available_labels: list, threshold: float = 0.6) -> str:
@@ -662,38 +719,96 @@ if template_file:
 if template_file and excel_file:
     st.divider()
 
-    # Read Excel
+    # Read Excel - try multi-sheet first
     try:
-        df = pd.read_excel(excel_file)
+        # Check if multi-sheet
+        all_sheets = pd.read_excel(excel_file, sheet_name=None)
+        num_sheets = len(all_sheets)
+        
+        # For single sheet, use traditional flow
+        if num_sheets == 1:
+            df = list(all_sheets.values())[0]
+            is_multi_sheet = False
+        else:
+            # Multi-sheet Excel
+            is_multi_sheet = True
+            st.info(f"📚 **Multi-sheet Excel detected:** {num_sheets} sheets found")
+            
+            # Show sheet names
+            with st.expander("📄 Sheet names"):
+                for sheet_name in all_sheets.keys():
+                    st.write(f"- {sheet_name}")
     except Exception as e:
         st.error(f"Error reading Excel: {e}")
         st.stop()
 
-    if df.empty:
-        st.error("Excel file has no rows.")
-        st.stop()
+    # Handle single vs multi-sheet
+    if not is_multi_sheet:
+        if df.empty:
+            st.error("Excel file has no rows.")
+            st.stop()
 
-    st.subheader("📋 Excel preview")
-    st.dataframe(df, use_container_width=True)
+        st.subheader("📋 Excel preview")
+        st.dataframe(df, use_container_width=True)
 
-    # Detect Excel format
-    excel_format = detect_excel_format(df)
-    st.info(f"📋 **Detected Excel format:** {excel_format}")
+        # Detect Excel format
+        excel_format = detect_excel_format(df)
+        st.info(f"📋 **Detected Excel format:** {excel_format}")
+    else:
+        # Multi-sheet: show first sheet as preview
+        first_sheet_name = list(all_sheets.keys())[0]
+        first_sheet_df = all_sheets[first_sheet_name]
+        
+        st.subheader(f"📋 Excel preview (showing first sheet: '{first_sheet_name}')")
+        st.dataframe(first_sheet_df, use_container_width=True)
+        
+        # For multi-sheet, assume row-based format
+        excel_format = 'row-based'
+        st.info(f"📋 **Multi-sheet mode:** Using row-based format for all sheets")
     
-    # Allow user to override
-    excel_format = st.radio(
-        "Excel format",
-        options=['column-based', 'row-based'],
-        index=0 if excel_format == 'column-based' else 1,
-        help=(
-            "**Column-based**: Each column is a field (e.g., 'Company Name' column)\n\n"
-            "**Row-based**: Each row has Label and Value (e.g., 'Company name' | 'CLimAIte')"
-        ),
-        horizontal=True,
-    )
+    # Allow user to override format (only for single sheet)
+    if not is_multi_sheet:
+        excel_format = st.radio(
+            "Excel format",
+            options=['column-based', 'row-based'],
+            index=0 if excel_format == 'column-based' else 1,
+            help=(
+                "**Column-based**: Each column is a field (e.g., 'Company Name' column)\n\n"
+                "**Row-based**: Each row has Label and Value (e.g., 'Company name' | 'CLimAIte')"
+            ),
+            horizontal=True,
+        )
     
-    # Parse data based on format
-    if excel_format == 'row-based':
+    # Parse data based on format and sheet count
+    if is_multi_sheet:
+        # Use multi-sheet parser
+        use_namespacing = st.checkbox(
+            "Use sheet namespacing",
+            value=False,
+            help="Prefix field names with sheet name (e.g., 'financials.total_cost')"
+        )
+        
+        data_dict, sheet_info = parse_multi_sheet_excel(excel_file, use_namespacing)
+        placeholder_mapping = create_placeholder_mapping()
+        
+        st.success(f"✅ Parsed {len(data_dict)} total fields from {num_sheets} sheets")
+        
+        with st.expander("🔍 View parsed data by sheet"):
+            for info in sheet_info:
+                st.write(f"**{info['name']}**: {info['format']} - {info['fields']} fields")
+        
+        with st.expander("🔍 View all parsed fields"):
+            for key, value in list(data_dict.items())[:20]:
+                st.write(f"**{key}**: {value[:100] if value else '(empty)'}...")
+            if len(data_dict) > 20:
+                st.write(f"... and {len(data_dict) - 20} more fields")
+        
+        # For multi-sheet, we don't need row selection
+        row_data = None
+        excel_columns = []
+        
+    elif excel_format == 'row-based':
+        # Single sheet row-based
         data_dict = parse_row_based_excel(df)
         placeholder_mapping = create_placeholder_mapping()
         
@@ -725,13 +840,16 @@ if template_file and excel_file:
     st.subheader("⚙️ Generation settings")
 
     # Choose row from Excel (only for column-based)
-    if excel_format == 'column-based':
+    if excel_format == 'column-based' and not is_multi_sheet:
         row_index = st.selectbox(
             "Select Excel row to use",
             options=range(len(df)),
             format_func=lambda i: f"Row {i+1}",
         )
         row_data = df.iloc[row_index]
+    elif is_multi_sheet:
+        row_index = None
+        st.info(f"ℹ️ Multi-sheet mode: Using unified data from all {num_sheets} sheets")
     else:
         row_index = None
         st.info("ℹ️ Row-based format: Using all label-value pairs from Excel")
