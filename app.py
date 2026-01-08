@@ -124,6 +124,66 @@ def detect_excel_format(df: pd.DataFrame) -> str:
     return 'column-based'
 
 
+def parse_hybrid_excel(df: pd.DataFrame, sheet_name: str = None, use_namespacing: bool = False) -> dict:
+    """
+    Parse Excel in BOTH column-based and row-based formats simultaneously.
+    
+    - Column-based: First row (headers) become field names, second row has values
+    - Row-based: First column = labels, second column = values
+    
+    This hybrid approach handles any Excel structure.
+    
+    Args:
+        df: DataFrame to parse
+        sheet_name: Name of the sheet (for namespacing)
+        use_namespacing: If True, prefix keys with sheet name
+    
+    Returns:
+        dict: {normalized_label: value}
+    """
+    data_dict = {}
+    
+    # PART 1: Read as COLUMN-based (headers = field names)
+    if len(df) > 0 and len(df.columns) > 0:
+        # Use first data row as values
+        first_row = df.iloc[0]
+        for col_name in df.columns:
+            if pd.isna(col_name) or str(col_name).strip() == '':
+                continue
+            
+            normalized = normalize_label(str(col_name))
+            if use_namespacing and sheet_name:
+                sheet_prefix = normalize_label(sheet_name)
+                normalized = f"{sheet_prefix}.{normalized}"
+            
+            value = first_row[col_name]
+            data_dict[normalized] = "" if pd.isna(value) else str(value)
+    
+    # PART 2: Read as ROW-based (column 0 = labels, column 1 = values)
+    if len(df.columns) >= 2:
+        label_col = df.columns[0]
+        value_col = df.columns[1]
+        
+        for idx, row in df.iterrows():
+            label = row[label_col]
+            value = row[value_col]
+            
+            # Skip empty labels
+            if pd.isna(label) or str(label).strip() == '':
+                continue
+            
+            normalized = normalize_label(str(label))
+            if use_namespacing and sheet_name:
+                sheet_prefix = normalize_label(sheet_name)
+                normalized = f"{sheet_prefix}.{normalized}"
+            
+            # Only add if not already present from column-based reading
+            # (row-based takes precedence if there's overlap)
+            data_dict[normalized] = "" if pd.isna(value) else str(value)
+    
+    return data_dict
+
+
 def parse_row_based_excel(df: pd.DataFrame, sheet_name: str = None, use_namespacing: bool = False) -> dict:
     """
     Parse row-based Excel format into a normalized key-value dictionary.
@@ -190,10 +250,10 @@ def parse_multi_sheet_excel(excel_file, use_namespacing: bool = False) -> tuple:
         if df.empty:
             continue
         
-        # In multi-sheet mode, try to parse everything as row-based
-        # Assume first 2 columns are Label/Value even if auto-detection says otherwise
+        # In multi-sheet mode, try to parse everything as HYBRID (both row and column)
+        # This reads both column headers as fields AND label/value pairs
         try:
-            sheet_data = parse_row_based_excel(df, sheet_name, use_namespacing)
+            sheet_data = parse_hybrid_excel(df, sheet_name, use_namespacing)
             
             if sheet_data:  # Only count if we got data
                 # Merge into unified dict (later sheets override earlier ones if no namespacing)
@@ -201,7 +261,7 @@ def parse_multi_sheet_excel(excel_file, use_namespacing: bool = False) -> tuple:
                 
                 sheet_info.append({
                     'name': sheet_name,
-                    'format': 'row-based',
+                    'format': 'hybrid (row+column)',
                     'fields': len(sheet_data)
                 })
             else:
@@ -772,24 +832,9 @@ if template_file and excel_file:
         st.subheader(f"📋 Excel preview (showing first sheet: '{first_sheet_name}')")
         st.dataframe(first_sheet_df, use_container_width=True)
         
-        # For multi-sheet, assume row-based format
-        excel_format = 'row-based'
-        st.info(f"📋 **Multi-sheet mode:** Using row-based format for all sheets")
+        st.info(f"📋 **Hybrid mode**: Reading both column headers and row-based Label/Value pairs from all sheets")
     
-    # Allow user to override format (only for single sheet)
-    if not is_multi_sheet:
-        excel_format = st.radio(
-            "Excel format",
-            options=['column-based', 'row-based'],
-            index=0 if excel_format == 'column-based' else 1,
-            help=(
-                "**Column-based**: Each column is a field (e.g., 'Company Name' column)\n\n"
-                "**Row-based**: Each row has Label and Value (e.g., 'Company name' | 'CLimAIte')"
-            ),
-            horizontal=True,
-        )
-    
-    # Parse data based on format and sheet count
+    # Parse data based on sheet count
     if is_multi_sheet:
         # Use multi-sheet parser
         use_namespacing = st.checkbox(
@@ -817,27 +862,23 @@ if template_file and excel_file:
         row_data = None
         excel_columns = []
         
-    elif excel_format == 'row-based':
-        # Single sheet row-based
-        data_dict = parse_row_based_excel(df)
+    else:
+        # Single sheet: use hybrid parser (reads both column and row formats)
+        data_dict = parse_hybrid_excel(df)
         placeholder_mapping = create_placeholder_mapping()
         
-        st.success(f"✅ Parsed {len(data_dict)} fields from row-based Excel")
+        st.info(f"📋 **Hybrid mode**: Reading both column headers and row-based Label/Value pairs")
+        st.success(f"✅ Parsed {len(data_dict)} fields from Excel")
         
         with st.expander("🔍 View parsed fields"):
-            for key, value in list(data_dict.items())[:10]:
+            for key, value in list(data_dict.items())[:20]:
                 st.write(f"**{key}**: {value[:100] if value else '(empty)'}...")
-            if len(data_dict) > 10:
-                st.write(f"... and {len(data_dict) - 10} more fields")
+            if len(data_dict) > 20:
+                st.write(f"... and {len(data_dict) - 20} more fields")
         
-        # For row-based, we don't need to select a row
+        # For hybrid, we don't need to select a row
         row_data = None
         excel_columns = []
-    else:
-        # Column-based: use existing logic
-        data_dict = None
-        placeholder_mapping = None
-        excel_columns = df.columns.tolist()
 
     # Load PPTX template
     try:
@@ -849,31 +890,14 @@ if template_file and excel_file:
     st.divider()
     st.subheader("⚙️ Generation settings")
 
-    # Choose row from Excel (only for column-based)
-    if excel_format == 'column-based' and not is_multi_sheet:
-        row_index = st.selectbox(
-            "Select Excel row to use",
-            options=range(len(df)),
-            format_func=lambda i: f"Row {i+1}",
-        )
-        row_data = df.iloc[row_index]
-    elif is_multi_sheet:
-        row_index = None
-        st.info(f"ℹ️ Multi-sheet mode: Using unified data from all {num_sheets} sheets")
+    # Info about hybrid mode
+    if is_multi_sheet:
+        st.info(f"ℹ️ Hybrid mode: Using unified data from all {num_sheets} sheets")
     else:
-        row_index = None
-        st.info("ℹ️ Row-based format: Using all label-value pairs from Excel")
+        st.info("ℹ️ Hybrid mode: Using both column headers and row-based data")
 
     # Button to generate
     if st.button("🚀 Generate PPTX", type="primary"):
-        # Ensure we have the data we need
-        if excel_format == 'column-based':
-            excel_columns = df.columns.tolist()
-            row_data = df.iloc[row_index]
-        else:
-            # Already set above
-            pass
-
         try:
             # Count targets: text boxes + table cells
             def count_text_targets(pres: Presentation) -> int:
