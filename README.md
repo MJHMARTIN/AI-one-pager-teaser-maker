@@ -106,6 +106,38 @@ Sheet "Location":      Country | Vietnam
 
 **The system reads ALL formats automatically!**
 
+### Module-Specific Field Mappings
+
+The system intelligently detects which module format your Excel file uses and automatically maps labels to standardized PPT tags. This allows different departments to use their own terminology while targeting the same presentation template.
+
+**Module 1: Sponsor-Focused** (Investment firms, capital partners)
+- Excel labels: "Sponsor Name", "Primary Focus Area", "Sponsor Summary"
+- Maps to: `:ISSUER:`, `:INDUSTRY:`, `:CLIENT_SUMMARY:`
+
+**Module 2: Company-Focused** (Corporate issuers, manufacturers)
+- Excel labels: "Company Legal Name", "Primary Industry", "Company Overview Business Model"
+- Maps to: `:ISSUER:`, `:INDUSTRY:`, `:CLIENT_SUMMARY:`
+
+**Module 3: Project-Focused** (Infrastructure, energy projects)
+- Excel labels: "Project Name", "Project Type", "Project Description"
+- Maps to: `:ISSUER:`, `:INDUSTRY:`, `:CLIENT_SUMMARY:`
+
+All modules map to the same standardized tags in your PPT template:
+- `:ISSUER:` - Name (sponsor/company/project)
+- `:INDUSTRY:` - Sector/focus area/type
+- `:JURISDICTION:` - Country of incorporation/location
+- `:ISSUANCE_TYPE:` - Financing type
+- `:INITIAL_NOTIONAL:` - Amount
+- `:COUPON_RATE:`, `:COUPON_FREQUENCY:`, `:TENOR:` - Terms
+- `:CLIENT_SUMMARY:` - Description
+- `:PROJECT_HIGHLIGHT:` - Background/strategy/specs
+
+**Test Files:**
+- `test_module1_sponsor.xlsx` - Sponsor format example
+- `test_module2_company.xlsx` - Company format example
+- `test_module3_project.xlsx` - Project format example
+- `test_module_template.pptx` - Template with standardized tags
+
 ## 🏷️ Template Placeholder Formats
 
 ### 1. Direct Placeholders

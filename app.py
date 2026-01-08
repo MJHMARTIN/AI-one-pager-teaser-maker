@@ -307,6 +307,90 @@ def fuzzy_match_label(target: str, available_labels: list, threshold: float = 0.
     return None
 
 
+def get_module_field_mappings() -> dict:
+    """
+    Define module-specific field mappings for different Excel formats.
+    
+    Each module (1, 2, 3) uses different labels for the same logical field.
+    This maps each module's specific labels to canonical PPT placeholder tags.
+    
+    Returns:
+        dict: {module_name: {PPT_TAG: excel_label}}
+    """
+    return {
+        "Module1": {
+            "ISSUER": "sponsor name",
+            "INDUSTRY": "primary focus area",
+            "JURISDICTION": "country of incorporation",
+            "ISSUANCE_TYPE": "financing type",
+            "INITIAL_NOTIONAL": "total financing amount",
+            "COUPON_RATE": "coupon rate",
+            "COUPON_FREQUENCY": "coupon frequency",
+            "TENOR": "requested tenor",
+            "CLIENT_SUMMARY": "sponsor summary",
+            "PROJECT_HIGHLIGHT": "sponsor background investment strategy"
+        },
+        "Module2": {
+            "ISSUER": "company legal name",
+            "INDUSTRY": "primary industry",
+            "JURISDICTION": "country of incorporation",
+            "ISSUANCE_TYPE": "financing type",
+            "INITIAL_NOTIONAL": "total financing amount",
+            "COUPON_RATE": "coupon rate",
+            "COUPON_FREQUENCY": "coupon frequency",
+            "TENOR": "requested tenor",
+            "CLIENT_SUMMARY": "company overview business model",
+            "PROJECT_HIGHLIGHT": "company growth strategy financial projections"
+        },
+        "Module3": {
+            "ISSUER": "project name",
+            "INDUSTRY": "project type",
+            "JURISDICTION": "project location country",
+            "ISSUANCE_TYPE": "financing type",
+            "INITIAL_NOTIONAL": "total project cost",
+            "COUPON_RATE": "coupon rate",
+            "COUPON_FREQUENCY": "coupon frequency",
+            "TENOR": "project tenor",
+            "CLIENT_SUMMARY": "project description",
+            "PROJECT_HIGHLIGHT": "project overview technical specs impact"
+        }
+    }
+
+
+def detect_module_type(data_dict: dict) -> str:
+    """
+    Detect which module type based on Excel field names.
+    
+    Args:
+        data_dict: Dictionary of normalized_label -> value
+    
+    Returns:
+        Module type: "Module1", "Module2", "Module3", or None
+    """
+    module_mappings = get_module_field_mappings()
+    
+    # Score each module based on how many of its specific fields are present
+    scores = {}
+    
+    for module_name, field_map in module_mappings.items():
+        score = 0
+        # Check unique fields for each module
+        for tag, excel_label in field_map.items():
+            normalized = normalize_label(excel_label)
+            if normalized in data_dict:
+                score += 1
+        scores[module_name] = score
+    
+    # Return module with highest score (if any fields matched)
+    if scores:
+        best_module = max(scores, key=scores.get)
+        if scores[best_module] > 0:
+            st.info(f"🔍 **Detected format:** {best_module}")
+            return best_module
+    
+    return None
+
+
 def create_placeholder_mapping() -> dict:
     """
     Define the mapping between PPT placeholder tags and canonical field names.
@@ -316,7 +400,7 @@ def create_placeholder_mapping() -> dict:
     Returns:
         dict: {PPT_TAG: [list of possible Excel label variations]}
     """
-    return {
+    base_mapping = {
         'COMPANY_NAME': ['company name', 'company', 'name of company', 'issuer', 'issuer name'],
         'SPONSOR_NAME': ['sponsor name', 'sponsor', 'lead sponsor', 'project sponsor'],
         'LOCATION_COUNTRY': ['location country', 'country', 'jurisdiction', 'location'],
@@ -335,6 +419,21 @@ def create_placeholder_mapping() -> dict:
         'TITLE': ['title', 'project title', 'project name', 'deal name'],
         'INDUSTRY': ['industry', 'sector', 'vertical', 'market'],
     }
+    
+    # Add module-specific mappings
+    module_mappings = get_module_field_mappings()
+    for module_name, field_map in module_mappings.items():
+        for tag, excel_label in field_map.items():
+            normalized = normalize_label(excel_label)
+            if tag in base_mapping:
+                # Add to existing list if not already there
+                if normalized not in base_mapping[tag]:
+                    base_mapping[tag].append(normalized)
+            else:
+                # Create new entry
+                base_mapping[tag] = [normalized]
+    
+    return base_mapping
 
 
 # ---------------- Smart local text generation ----------------
@@ -673,7 +772,7 @@ def generate_beta_text(prompt_text: str, row_data: pd.Series, tone: str = "short
 
 
 # -------- Placeholder logic --------
-def resolve_tag_to_value(tag: str, data_dict: dict, placeholder_mapping: dict) -> str:
+def resolve_tag_to_value(tag: str, data_dict: dict, placeholder_mapping: dict, module_type: str = None) -> str:
     """
     Resolve a :TAG: placeholder to its value using the mapping and data dictionary.
     
@@ -681,10 +780,20 @@ def resolve_tag_to_value(tag: str, data_dict: dict, placeholder_mapping: dict) -
         tag: The tag name (e.g., 'COMPANY_NAME')
         data_dict: Dictionary of normalized_label -> value
         placeholder_mapping: Dictionary of TAG -> [possible label variations]
+        module_type: Detected module type ("Module1", "Module2", "Module3")
     
     Returns:
         The resolved value or empty string if not found
     """
+    # If we have a detected module, prioritize module-specific labels
+    if module_type:
+        module_mappings = get_module_field_mappings()
+        if module_type in module_mappings and tag in module_mappings[module_type]:
+            module_label = module_mappings[module_type][tag]
+            normalized = normalize_label(module_label)
+            if normalized in data_dict:
+                return data_dict[normalized]
+    
     # Check if this tag is in our mapping
     if tag in placeholder_mapping:
         possible_labels = placeholder_mapping[tag]
@@ -722,6 +831,7 @@ def process_placeholder(
     data_dict: dict = None,
     placeholder_mapping: dict = None,
     excel_format: str = 'column-based',
+    module_type: str = None,
 ) -> str:
     """
     Resolve a placeholder to final text using smart local generation.
@@ -735,7 +845,7 @@ def process_placeholder(
     tag_match = re.match(r'^:([A-Z_]+):$', placeholder.strip())
     if tag_match and data_dict is not None and placeholder_mapping is not None:
         tag = tag_match.group(1)
-        return resolve_tag_to_value(tag, data_dict, placeholder_mapping)
+        return resolve_tag_to_value(tag, data_dict, placeholder_mapping, module_type)
     
     # AI placeholder - always use local generation
     if placeholder.startswith("AI:"):
@@ -761,7 +871,7 @@ def process_placeholder(
             # Find all {TAG} or {{TAG}} patterns
             tokens = re.findall(r'\{\{?([A-Z_]+)\}?\}?', prompt_text)
             for token in tokens:
-                value = resolve_tag_to_value(token, data_dict, placeholder_mapping)
+                value = resolve_tag_to_value(token, data_dict, placeholder_mapping, module_type)
                 prompt_text = prompt_text.replace(f"{{{{{token}}}}}", value)
                 prompt_text = prompt_text.replace(f"{{{token}}}", value)
         
@@ -978,6 +1088,11 @@ if template_file and excel_file:
     # Button to generate
     if st.button("🚀 Generate PPTX", type="primary"):
         try:
+            # Detect module type from data
+            module_type = detect_module_type(data_dict)
+            if module_type:
+                st.success(f"✅ Using {module_type} field mappings")
+            
             # Count targets: text boxes + table cells
             def count_text_targets(pres: Presentation) -> int:
                 total = 0
@@ -1041,6 +1156,7 @@ if template_file and excel_file:
                                         data_dict,
                                         placeholder_mapping,
                                         excel_format,
+                                        module_type,
                                     )
                                     new_text = new_text.replace(f"[{placeholder}]", replacement)
                                     # Also handle :TAG: format
@@ -1058,6 +1174,7 @@ if template_file and excel_file:
                                         data_dict,
                                         placeholder_mapping,
                                         excel_format,
+                                        module_type,
                                     )
                                     st.write(f"DEBUG: Original=[AI: {ai_prompt}], Replacement={replacement[:100]}")
                                     new_text = new_text.replace(f"[AI: {ai_prompt}]", replacement)
@@ -1149,6 +1266,7 @@ if template_file and excel_file:
                             data_dict,
                             placeholder_mapping,
                             excel_format,
+                            module_type,
                         )
                         new_text = new_text.replace(f"[{placeholder}]", replacement)
                         # Also handle :TAG: format
@@ -1166,6 +1284,7 @@ if template_file and excel_file:
                             data_dict,
                             placeholder_mapping,
                             excel_format,
+                            module_type,
                         )
                         st.write(f"DEBUG: Original=[AI: {ai_prompt}], Replacement={replacement[:100]}")
                         new_text = new_text.replace(f"[AI: {ai_prompt}]", replacement)
