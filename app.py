@@ -4,6 +4,7 @@ from pptx import Presentation
 from io import BytesIO
 import re
 import requests
+from difflib import get_close_matches
 
 # ---------------- Streamlit page config ----------------
 st.set_page_config(page_title="PPTX Teaser Generator with AI", layout="wide")
@@ -41,22 +42,179 @@ st.sidebar.info(
 **Template syntax**
 
 **1. Direct placeholders (no AI)**  
-- In PowerPoint:  
-  `Title: [Title]`  
-  `Company: [Company Name]`  
-- In Excel: columns `Title`, `Company Name`
+- **Column-based Excel:**  
+  In PowerPoint: `Title: [Title]` or `Company: [Company Name]`  
+  In Excel: columns `Title`, `Company Name`
+
+- **Row-based Excel:**  
+  In PowerPoint: `:COMPANY_NAME:`, `:TITLE:`, `:SPONSOR_NAME:`  
+  In Excel: rows with labels like "Company name", "Title", "Sponsor name"
 
 **2. AI-generated prompts (local)**  
 - In PowerPoint:  
   `[AI: Write a teaser about {Company} in {Industry}]`  
   or  
-  `[AI: Write about {{ISSUER}} in {{JURISDICTION}}]`  
-- In Excel: columns match the tokens (e.g., `Company`, `Industry`, `ISSUER`, `JURISDICTION`)  
-- Both `{Token}` and `{{Token}}` formats are supported
+  `[AI: Write about {COMPANY_NAME} in {LOCATION_COUNTRY}]`  
+- Column-based: tokens match Excel columns  
+- Row-based: tokens match canonical tags (COMPANY_NAME, etc.)
+
+**Row-based format** automatically handles label variations:  
+- "Company name", "Company Name", "Name of company" → all work!  
+- Uses fuzzy matching for flexibility
 
 Text box formatting is preserved when content is replaced.
 """
 )
+
+
+# ---------------- Smart local text generation ----------------
+def normalize_label(label: str) -> str:
+    """Normalize Excel label for consistent matching."""
+    if not isinstance(label, str):
+        return ""
+    # Lowercase, strip spaces, remove punctuation
+    normalized = label.lower().strip()
+    # Remove common punctuation but keep underscores
+    normalized = re.sub(r'[^\w\s]', '', normalized)
+    # Replace multiple spaces with single space
+    normalized = re.sub(r'\s+', ' ', normalized)
+    return normalized
+
+
+def detect_excel_format(df: pd.DataFrame) -> str:
+    """
+    Detect if Excel is column-based or row-based format.
+    
+    Returns:
+        'column-based': Traditional format where each column is a field
+        'row-based': Label-Value pair format where rows contain field definitions
+    """
+    # Check if first two columns look like Label-Value pairs
+    if len(df.columns) >= 2:
+        first_col = df.columns[0]
+        second_col = df.columns[1]
+        
+        # Common indicators of row-based format
+        label_indicators = ['label', 'field', 'name', 'key', 'question', 'item']
+        value_indicators = ['value', 'answer', 'data', 'content', 'response']
+        
+        first_lower = str(first_col).lower()
+        second_lower = str(second_col).lower()
+        
+        # Check column names
+        is_label_value = (
+            any(ind in first_lower for ind in label_indicators) and
+            any(ind in second_lower for ind in value_indicators)
+        )
+        
+        if is_label_value:
+            return 'row-based'
+        
+        # Check content: if first column has question-like text
+        if len(df) > 0:
+            first_values = df.iloc[:, 0].dropna().astype(str).head(5)
+            # Check if values look like labels (contain spaces, question marks, colons)
+            label_like_count = sum(
+                1 for v in first_values 
+                if len(v) > 10 and (' ' in v or ':' in v or '?' in v)
+            )
+            if label_like_count >= 3:  # If 3+ rows look like labels
+                return 'row-based'
+    
+    # Default to column-based
+    return 'column-based'
+
+
+def parse_row_based_excel(df: pd.DataFrame) -> dict:
+    """
+    Parse row-based Excel format into a normalized key-value dictionary.
+    
+    Expects Excel with structure:
+    - Column 0: Labels/Questions
+    - Column 1: Values/Answers
+    - Optional: Column 2+ for categories/sections
+    
+    Returns:
+        dict: {normalized_label: value}
+    """
+    data_dict = {}
+    
+    # Use first two columns as label-value
+    label_col = df.columns[0]
+    value_col = df.columns[1] if len(df.columns) > 1 else df.columns[0]
+    
+    for idx, row in df.iterrows():
+        label = row[label_col]
+        value = row[value_col]
+        
+        # Skip empty labels
+        if pd.isna(label) or str(label).strip() == '':
+            continue
+        
+        # Normalize the label
+        normalized = normalize_label(str(label))
+        
+        # Store the value (convert NaN to empty string)
+        data_dict[normalized] = "" if pd.isna(value) else str(value)
+    
+    return data_dict
+
+
+def fuzzy_match_label(target: str, available_labels: list, threshold: float = 0.6) -> str:
+    """
+    Find the best matching label using fuzzy string matching.
+    
+    Args:
+        target: The label to match
+        available_labels: List of available labels
+        threshold: Minimum similarity score (0-1)
+    
+    Returns:
+        Best matching label or None
+    """
+    normalized_target = normalize_label(target)
+    
+    # Try exact match first
+    if normalized_target in available_labels:
+        return normalized_target
+    
+    # Try fuzzy matching
+    matches = get_close_matches(normalized_target, available_labels, n=1, cutoff=threshold)
+    
+    if matches:
+        return matches[0]
+    
+    return None
+
+
+def create_placeholder_mapping() -> dict:
+    """
+    Define the mapping between PPT placeholder tags and canonical field names.
+    
+    This allows flexible wording in Excel while maintaining consistent PPT templates.
+    
+    Returns:
+        dict: {PPT_TAG: [list of possible Excel label variations]}
+    """
+    return {
+        'COMPANY_NAME': ['company name', 'company', 'name of company', 'issuer', 'issuer name'],
+        'SPONSOR_NAME': ['sponsor name', 'sponsor', 'lead sponsor', 'project sponsor'],
+        'LOCATION_COUNTRY': ['location country', 'country', 'jurisdiction', 'location'],
+        'LOCATION_STATE': ['location state', 'state', 'province', 'region'],
+        'ASSET_TYPE': ['asset type', 'type of asset', 'asset class', 'sector'],
+        'PROJECT_TYPE': ['project type', 'type of project', 'development type'],
+        'UNIT': ['unit', 'capacity', 'size', 'scale'],
+        'TECHNOLOGY': ['technology', 'tech', 'technology type', 'technical approach'],
+        'INITIAL_INVESTMENT': ['initial investment', 'initial capex', 'phase 1 investment', 'startup cost'],
+        'FUTURE_INVESTMENT': ['future investment', 'expansion investment', 'phase 2 investment', 'growth capex'],
+        'CONTRACTOR': ['contractor', 'epc contractor', 'construction partner', 'builder'],
+        'OFFTAKER': ['offtaker', 'offtake partner', 'purchaser', 'buyer'],
+        'PROJECT_STATUS': ['project status', 'status', 'development stage', 'phase'],
+        'COD': ['cod', 'commercial operation date', 'operational date', 'completion date'],
+        'DESCRIPTION': ['description', 'project description', 'overview', 'summary'],
+        'TITLE': ['title', 'project title', 'project name', 'deal name'],
+        'INDUSTRY': ['industry', 'sector', 'vertical', 'market'],
+    }
 
 
 # ---------------- Smart local text generation ----------------
@@ -227,19 +385,70 @@ def generate_beta_text(prompt_text: str, row_data: pd.Series, tone: str = "short
 
 
 # -------- Placeholder logic --------
+def resolve_tag_to_value(tag: str, data_dict: dict, placeholder_mapping: dict) -> str:
+    """
+    Resolve a :TAG: placeholder to its value using the mapping and data dictionary.
+    
+    Args:
+        tag: The tag name (e.g., 'COMPANY_NAME')
+        data_dict: Dictionary of normalized_label -> value
+        placeholder_mapping: Dictionary of TAG -> [possible label variations]
+    
+    Returns:
+        The resolved value or empty string if not found
+    """
+    # Check if this tag is in our mapping
+    if tag in placeholder_mapping:
+        possible_labels = placeholder_mapping[tag]
+        
+        # Try each possible label variation
+        for label_variation in possible_labels:
+            normalized = normalize_label(label_variation)
+            if normalized in data_dict:
+                return data_dict[normalized]
+        
+        # If no exact match, try fuzzy matching
+        fuzzy_match = fuzzy_match_label(possible_labels[0], list(data_dict.keys()))
+        if fuzzy_match and fuzzy_match in data_dict:
+            return data_dict[fuzzy_match]
+    
+    # Try using the tag itself as a label (for backwards compatibility)
+    normalized_tag = normalize_label(tag)
+    if normalized_tag in data_dict:
+        return data_dict[normalized_tag]
+    
+    # Try fuzzy match on the tag
+    fuzzy_match = fuzzy_match_label(tag, list(data_dict.keys()))
+    if fuzzy_match and fuzzy_match in data_dict:
+        return data_dict[fuzzy_match]
+    
+    return ""
+
+
 def process_placeholder(
     placeholder: str,
     row_data: pd.Series,
     excel_columns: list,
     beta_tone: str,
     missing_to_blank: bool,
+    data_dict: dict = None,
+    placeholder_mapping: dict = None,
+    excel_format: str = 'column-based',
 ) -> str:
     """
     Resolve a placeholder to final text using smart local generation.
 
-    - Direct: "Title" → row_data["Title"]
-    - AI: "AI: Write teaser about {Company}" → smart text generation with Excel values.
+    Supports multiple formats:
+    - Direct: "Title" → row_data["Title"] (column-based)
+    - Tag: ":COMPANY_NAME:" → resolved via mapping (row-based)
+    - AI: "AI: Write teaser about {Company}" → smart text generation
     """
+    # Handle :TAG: format (new row-based system)
+    tag_match = re.match(r'^:([A-Z_]+):$', placeholder.strip())
+    if tag_match and data_dict is not None and placeholder_mapping is not None:
+        tag = tag_match.group(1)
+        return resolve_tag_to_value(tag, data_dict, placeholder_mapping)
+    
     # AI placeholder - always use local generation
     if placeholder.startswith("AI:"):
         import re
@@ -260,6 +469,15 @@ def process_placeholder(
                 # Support both {{}} and {} formats
                 prompt_text = prompt_text.replace(f"{{{{{col}}}}}", value)  # {{ColumnName}}
                 prompt_text = prompt_text.replace(f"{{{col}}}", value)       # {ColumnName}
+        
+        # Also support {TAG} format for row-based data
+        if data_dict is not None and placeholder_mapping is not None:
+            # Find all {TAG} or {{TAG}} patterns
+            tokens = re.findall(r'\{\{?([A-Z_]+)\}?\}?', prompt_text)
+            for token in tokens:
+                value = resolve_tag_to_value(token, data_dict, placeholder_mapping)
+                prompt_text = prompt_text.replace(f"{{{{{token}}}}}", value)
+                prompt_text = prompt_text.replace(f"{{{token}}}", value)
         
         # Fix common typos: {{TOKEN} with only one closing brace
         prompt_text = re.sub(r'\{\{([^}]+)\}(?!\})', r'{{\1}}', prompt_text)
@@ -354,6 +572,44 @@ if template_file and excel_file:
     st.subheader("📋 Excel preview")
     st.dataframe(df, use_container_width=True)
 
+    # Detect Excel format
+    excel_format = detect_excel_format(df)
+    st.info(f"📋 **Detected Excel format:** {excel_format}")
+    
+    # Allow user to override
+    excel_format = st.radio(
+        "Excel format",
+        options=['column-based', 'row-based'],
+        index=0 if excel_format == 'column-based' else 1,
+        help=(
+            "**Column-based**: Each column is a field (e.g., 'Company Name' column)\n\n"
+            "**Row-based**: Each row has Label and Value (e.g., 'Company name' | 'CLimAIte')"
+        ),
+        horizontal=True,
+    )
+    
+    # Parse data based on format
+    if excel_format == 'row-based':
+        data_dict = parse_row_based_excel(df)
+        placeholder_mapping = create_placeholder_mapping()
+        
+        st.success(f"✅ Parsed {len(data_dict)} fields from row-based Excel")
+        
+        with st.expander("🔍 View parsed fields"):
+            for key, value in list(data_dict.items())[:10]:
+                st.write(f"**{key}**: {value[:100] if value else '(empty)'}...")
+            if len(data_dict) > 10:
+                st.write(f"... and {len(data_dict) - 10} more fields")
+        
+        # For row-based, we don't need to select a row
+        row_data = None
+        excel_columns = []
+    else:
+        # Column-based: use existing logic
+        data_dict = None
+        placeholder_mapping = None
+        excel_columns = df.columns.tolist()
+
     # Load PPTX template
     try:
         prs = Presentation(template_file)
@@ -364,17 +620,27 @@ if template_file and excel_file:
     st.divider()
     st.subheader("⚙️ Generation settings")
 
-    # Choose row from Excel
-    row_index = st.selectbox(
-        "Select Excel row to use",
-        options=range(len(df)),
-        format_func=lambda i: f"Row {i+1}",
-    )
+    # Choose row from Excel (only for column-based)
+    if excel_format == 'column-based':
+        row_index = st.selectbox(
+            "Select Excel row to use",
+            options=range(len(df)),
+            format_func=lambda i: f"Row {i+1}",
+        )
+        row_data = df.iloc[row_index]
+    else:
+        row_index = None
+        st.info("ℹ️ Row-based format: Using all label-value pairs from Excel")
 
     # Button to generate
     if st.button("🚀 Generate PPTX", type="primary"):
-        excel_columns = df.columns.tolist()
-        row_data = df.iloc[row_index]
+        # Ensure we have the data we need
+        if excel_format == 'column-based':
+            excel_columns = df.columns.tolist()
+            row_data = df.iloc[row_index]
+        else:
+            # Already set above
+            pass
 
         try:
             # Count targets: text boxes + table cells
@@ -419,6 +685,9 @@ if template_file and excel_file:
 
                                 ai_matches = re.findall(r"\[AI:\s*(.+?)\]", original_text)
                                 direct_matches = re.findall(r"\[(?!AI:)(.+?)\]", original_text)
+                                # Also find :TAG: format placeholders
+                                tag_matches = re.findall(r":([A-Z_]+):", original_text)
+                                direct_matches.extend([f":{tag}:" for tag in tag_matches])
 
                                 if not direct_matches and not ai_matches:
                                     processed += 1
@@ -434,8 +703,14 @@ if template_file and excel_file:
                                         excel_columns,
                                         beta_tone,
                                         missing_to_blank,
+                                        data_dict,
+                                        placeholder_mapping,
+                                        excel_format,
                                     )
                                     new_text = new_text.replace(f"[{placeholder}]", replacement)
+                                    # Also handle :TAG: format
+                                    if placeholder.startswith(':') and placeholder.endswith(':'):
+                                        new_text = new_text.replace(placeholder, replacement)
 
                                 for ai_prompt in ai_matches:
                                     status.text(f"🤖 Generating text: {ai_prompt[:60]}...")
@@ -445,6 +720,9 @@ if template_file and excel_file:
                                         excel_columns,
                                         beta_tone,
                                         missing_to_blank,
+                                        data_dict,
+                                        placeholder_mapping,
+                                        excel_format,
                                     )
                                     st.write(f"DEBUG: Original=[AI: {ai_prompt}], Replacement={replacement[:100]}")
                                     new_text = new_text.replace(f"[AI: {ai_prompt}]", replacement)
@@ -513,6 +791,9 @@ if template_file and excel_file:
                             ai_matches = ai_no_close
                     
                     direct_matches = re.findall(r"\[(?!AI:)(.+?)\]", original_text)
+                    # Also find :TAG: format placeholders
+                    tag_matches = re.findall(r":([A-Z_]+):", original_text)
+                    direct_matches.extend([f":{tag}:" for tag in tag_matches])
 
                     st.write(f"  🎯 Found {len(ai_matches)} AI placeholders, {len(direct_matches)} direct placeholders")
 
@@ -530,8 +811,14 @@ if template_file and excel_file:
                             excel_columns,
                             beta_tone,
                             missing_to_blank,
+                            data_dict,
+                            placeholder_mapping,
+                            excel_format,
                         )
                         new_text = new_text.replace(f"[{placeholder}]", replacement)
+                        # Also handle :TAG: format
+                        if placeholder.startswith(':') and placeholder.endswith(':'):
+                            new_text = new_text.replace(placeholder, replacement)
 
                     for ai_prompt in ai_matches:
                         status.text(f"🤖 Generating text: {ai_prompt[:60]}...")
@@ -541,6 +828,9 @@ if template_file and excel_file:
                             excel_columns,
                             beta_tone,
                             missing_to_blank,
+                            data_dict,
+                            placeholder_mapping,
+                            excel_format,
                         )
                         st.write(f"DEBUG: Original=[AI: {ai_prompt}], Replacement={replacement[:100]}")
                         new_text = new_text.replace(f"[AI: {ai_prompt}]", replacement)
