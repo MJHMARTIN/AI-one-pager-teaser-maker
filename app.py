@@ -174,14 +174,14 @@ def parse_multi_sheet_excel(excel_file, use_namespacing: bool = False) -> tuple:
     Read all sheets from an Excel file and merge into unified knowledge base.
     
     Args:
-        excel_file: File-like object or path to Excel
+        excel_file: File-like object or path to Excel (.xlsx or .xlsm)
         use_namespacing: If True, prefix keys with sheet names
     
     Returns:
         tuple: (unified_data_dict, sheet_info_list)
     """
-    # Read all sheets
-    sheets_dict = pd.read_excel(excel_file, sheet_name=None)
+    # Read all sheets (supports both .xlsx and .xlsm, macros ignored)
+    sheets_dict = pd.read_excel(excel_file, sheet_name=None, engine='openpyxl')
     
     unified_data = {}
     sheet_info = []
@@ -685,8 +685,9 @@ with col2:
     st.subheader("Step 2: Excel Data")
     excel_file = st.file_uploader(
         "Upload your Excel file (columns must match placeholders)",
-        type="xlsx",
+        type=["xlsx", "xlsm"],
         key="excel",
+        help="Supports .xlsx and .xlsm files. Macros in .xlsm files are ignored for security."
     )
 
 
@@ -721,8 +722,13 @@ if template_file and excel_file:
 
     # Read Excel - try multi-sheet first
     try:
-        # Check if multi-sheet
-        all_sheets = pd.read_excel(excel_file, sheet_name=None)
+        # Detect file type and add info for .xlsm
+        file_name = excel_file.name if hasattr(excel_file, 'name') else 'unknown'
+        if file_name.endswith('.xlsm'):
+            st.info("ℹ️ **XLSM file detected**: Reading data only, macros are disabled for security")
+        
+        # Check if multi-sheet (pandas reads .xlsm same as .xlsx, ignores macros)
+        all_sheets = pd.read_excel(excel_file, sheet_name=None, engine='openpyxl')
         num_sheets = len(all_sheets)
         
         # For single sheet, use traditional flow
