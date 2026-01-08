@@ -3,7 +3,6 @@ import pandas as pd
 from pptx import Presentation
 from io import BytesIO
 import re
-import requests
 from difflib import get_close_matches
 
 # ---------------- Streamlit page config ----------------
