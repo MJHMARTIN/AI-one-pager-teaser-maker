@@ -218,14 +218,121 @@ def create_placeholder_mapping() -> dict:
 
 
 # ---------------- Smart local text generation ----------------
+def extract_structured_prompt_data(prompt_text: str) -> dict:
+    """
+    Extract structured data from prompts that follow the pattern:
+    'Paragraph 1: ... Use: "{value}"'
+    
+    Returns dict of extracted values and their context.
+    """
+    data = {}
+    
+    # Pattern: Use: "{value}" or use "{value}"
+    use_patterns = re.findall(r'[Uu]se:\s*["\']([^"\']+)["\']', prompt_text)
+    
+    # Map them to paragraph numbers if available
+    paragraphs = re.split(r'Paragraph \d+:', prompt_text)
+    
+    for idx, para in enumerate(paragraphs[1:], 1):  # Skip first split (before any paragraph)
+        # Extract all quoted strings in this paragraph
+        quoted = re.findall(r'["\']([^"\']{10,})["\']', para)  # At least 10 chars to avoid short labels
+        if quoted:
+            data[f'paragraph_{idx}'] = quoted
+    
+    # Also extract all quoted strings globally as fallback
+    all_quoted = re.findall(r'["\']([^"\']{10,})["\']', prompt_text)
+    data['all_values'] = all_quoted
+    
+    return data
+
+
 def generate_beta_text(prompt_text: str, row_data: pd.Series, tone: str = "short") -> str:
     """
     Generates text by interpreting the prompt after {token} substitution.
-    Detects length requirements (words, sentences, paragraphs) and follows them.
+    Now with sophisticated template matching for structured content.
     """
-    import re
     
     prompt_lower = prompt_text.lower()
+    
+    # **NEW: Detect 3-paragraph "Project Highlight" structure**
+    # This is the most common pattern in the user's examples
+    is_project_highlight = (
+        'paragraph 1:' in prompt_lower and 
+        'paragraph 2:' in prompt_lower and 
+        'paragraph 3:' in prompt_lower
+    )
+    
+    if is_project_highlight:
+        # Extract structured data from the prompt
+        data = extract_structured_prompt_data(prompt_text)
+        paragraphs = []
+        
+        # **PARAGRAPH 1 FORMULA:**
+        # Sentence 1: "The client {Company_Operations}."
+        # Sentence 2: "The proposed project is the {Project_Focus}."
+        if 'paragraph_1' in data and len(data['paragraph_1']) >= 1:
+            company_ops = data['paragraph_1'][0]
+            project_focus = data['paragraph_1'][1] if len(data['paragraph_1']) > 1 else ""
+            
+            # Handle "called" pattern: extract project focus from 'called "{Project_Focus}"'
+            if not project_focus and 'called' in prompt_text:
+                called_match = re.search(r'called\s+["\']([^"\']+)["\']', prompt_text, re.IGNORECASE)
+                if called_match:
+                    project_focus = called_match.group(1)
+            
+            para1_sent1 = f"The client {company_ops}."
+            para1_sent2 = f"The proposed project is the {project_focus}." if project_focus else ""
+            paragraphs.append(f"{para1_sent1} {para1_sent2}".strip())
+        
+        # **PARAGRAPH 2 FORMULA:**
+        # Sentence 1: "The client {Service_Scope}."
+        # Sentence 2: "They {Partnership}." (handle verb forms)
+        # Sentence 3: "{Partnership_Benefit}."
+        if 'paragraph_2' in data and len(data['paragraph_2']) >= 1:
+            service_scope = data['paragraph_2'][0]
+            partnership = data['paragraph_2'][1] if len(data['paragraph_2']) > 1 else ""
+            partnership_benefit = data['paragraph_2'][2] if len(data['paragraph_2']) > 2 else ""
+            
+            para2_sent1 = f"The client {service_scope}."
+            
+            # Handle partnership verb form
+            if partnership:
+                partnership_clean = partnership.strip()
+                if partnership_clean.startswith('partner with') or partnership_clean.startswith('partner in'):
+                    para2_sent2 = f"They {partnership_clean}."
+                elif partnership_clean.startswith('partnered with') or 'partnered' in partnership_clean:
+                    para2_sent2 = f"They are {partnership_clean}."
+                else:
+                    para2_sent2 = f"They {partnership_clean}."
+            else:
+                para2_sent2 = ""
+            
+            para2_sent3 = f"{partnership_benefit}." if partnership_benefit else ""
+            
+            para2 = f"{para2_sent1} {para2_sent2} {para2_sent3}".strip()
+            paragraphs.append(para2)
+        
+        # **PARAGRAPH 3 FORMULA:**
+        # Single sentence: "The project will commence with an initial investment of {Initial}, 
+        #                   with a projected expansion to {Expansion} {Path}."
+        if 'paragraph_3' in data or 'all_values' in data:
+            # Look for the investment sentence pattern directly in prompt
+            investment_pattern = re.search(
+                r'The project will commence with an initial investment of\s+([^,]+),\s*with a projected expansion to\s+([^.]+)',
+                prompt_text,
+                re.IGNORECASE
+            )
+            
+            if investment_pattern:
+                para3 = f"The project will commence with an initial investment of {investment_pattern.group(1)}, with a projected expansion to {investment_pattern.group(2)}."
+                paragraphs.append(para3)
+        
+        # Join paragraphs with double newline
+        result = "\n\n".join(p for p in paragraphs if p)
+        if result:
+            return result
+    
+    # **FALLBACK: Original logic for other prompt types**
     
     # Detect specific length requirements in the prompt
     word_count = None
@@ -451,8 +558,6 @@ def process_placeholder(
     
     # AI placeholder - always use local generation
     if placeholder.startswith("AI:"):
-        import re
-        
         prompt_text = placeholder[3:].strip()
         
         # Handle double "AI:" at the start (common error)
