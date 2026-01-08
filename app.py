@@ -725,9 +725,25 @@ def process_placeholder(
         st.write(f"✅ DEBUG - Generated text: '{generated[:200]}...'")
         return generated
 
-    # Direct placeholder
+    # Direct placeholder - check if we have row_data (column-based) or data_dict (hybrid/row-based)
+    if data_dict is not None and placeholder_mapping is not None:
+        # Using hybrid/row-based mode - try to resolve from data_dict
+        col_name = placeholder.strip()
+        normalized = normalize_label(col_name)
+        
+        if normalized in data_dict:
+            return data_dict[normalized]
+        
+        # Try fuzzy match
+        fuzzy_match = fuzzy_match_label(col_name, list(data_dict.keys()))
+        if fuzzy_match and fuzzy_match in data_dict:
+            return data_dict[fuzzy_match]
+        
+        return "" if missing_to_blank else f"[MISSING FIELD: {col_name}]"
+    
+    # Legacy column-based mode with row_data
     col_name = placeholder.strip()
-    if col_name in row_data.index:
+    if row_data is not None and col_name in row_data.index:
         val = row_data[col_name]
         return "" if pd.isna(val) else str(val)
     else:
