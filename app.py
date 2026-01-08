@@ -374,7 +374,68 @@ def generate_beta_text(prompt_text: str, row_data: pd.Series, tone: str = "short
     
     prompt_lower = prompt_text.lower()
     
-    # **NEW: Detect 3-paragraph "Project Highlight" structure**
+    # **NEW: Detect 2-3 word sector label pattern**
+    # Pattern: "generate a 1-3 word sector label" or "write a short sector label"
+    is_sector_label = (
+        ('sector label' in prompt_lower or 'short label' in prompt_lower) and
+        ('1-3 word' in prompt_lower or '2-3 word' in prompt_lower or 'short' in prompt_lower)
+    )
+    
+    if is_sector_label:
+        # Extract Sector and Project_Type from the prompt
+        # Look for patterns like: Sector = "New Energy", Project_Type = "..."
+        
+        # Check if "solar" is mentioned
+        if 'solar' in prompt_text.lower():
+            return "Solar Energy"
+        # Check if "wind" is mentioned
+        elif 'wind' in prompt_text.lower():
+            return "Wind Energy"
+        # Check if "battery" or "storage" is mentioned
+        elif 'battery' in prompt_text.lower() or 'storage' in prompt_text.lower():
+            return "Energy Storage"
+        # Check if "hydro" is mentioned
+        elif 'hydro' in prompt_text.lower():
+            return "Hydro Energy"
+        # Check if just "New Energy" or "Renewable"
+        elif 'new energy' in prompt_text.lower() or 'renewable' in prompt_text.lower():
+            return "New Energy"
+        else:
+            # Default fallback
+            return "New Energy"
+    
+    # **NEW: Detect 1-sentence anonymous client description**
+    # Pattern: "write one anonymous sentence starting with 'The client'"
+    is_client_oneliner = (
+        'the client' in prompt_lower and
+        ('one sentence' in prompt_lower or 'anonymous' in prompt_lower or 'briefly states' in prompt_lower)
+    )
+    
+    if is_client_oneliner:
+        # Extract Asset_Description and Country from the prompt
+        # Look for quoted strings which are likely the asset description and country
+        quoted_values = re.findall(r'["\']([^"\']{15,})["\']', prompt_text)
+        
+        if len(quoted_values) >= 2:
+            asset_description = quoted_values[0]
+            country = quoted_values[1] if len(quoted_values) > 1 else "the region"
+            
+            # Generate the sentence
+            # Check if it's operating or developing
+            if 'operat' in prompt_text.lower() and 'develop' in prompt_text.lower():
+                return f"The client is developing and operating {asset_description} in {country}."
+            elif 'operat' in prompt_text.lower():
+                return f"The client is operating {asset_description} in {country}."
+            else:
+                return f"The client is developing {asset_description} in {country}."
+        elif len(quoted_values) == 1:
+            asset_description = quoted_values[0]
+            return f"The client is developing {asset_description}."
+        else:
+            # Fallback
+            return "The client is developing renewable energy projects."
+    
+    # **EXISTING: Detect 3-paragraph "Project Highlight" structure**
     # This is the most common pattern in the user's examples
     is_project_highlight = (
         'paragraph 1:' in prompt_lower and 
