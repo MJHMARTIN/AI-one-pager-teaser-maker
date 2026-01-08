@@ -4,3 +4,4 @@ python-pptx
 requests
 openpyxl
 lxml
+groq
