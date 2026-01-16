@@ -1,25 +1,45 @@
+"""
+PPTX Teaser Generator - Streamlit UI
+Refactored to use modular architecture with separate concerns.
+"""
+
 import streamlit as st
 import pandas as pd
 from pptx import Presentation
 from io import BytesIO
-import re
-from difflib import get_close_matches
+import logging
+
+# Import modules
+from excel_loader import detect_excel_format, parse_hybrid_excel, parse_multi_sheet_excel
+from module_detector import detect_module_type
+from field_mapping import create_placeholder_mapping
+from ppt_filler import fill_pptx
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # ---------------- Streamlit page config ----------------
 st.set_page_config(page_title="PPTX Teaser Generator with AI", layout="wide")
 st.title("📊 PPTX Teaser Generator with AI")
 
+logger.info("Application started")
+
 st.write(
     "Upload your template PPTX and Excel data. "
     "The template can contain direct placeholders like [Title] and AI prompts like "
     "[AI: Write a short teaser about {Company} in {Industry}]. "
+    "Powered by Perplexity API for intelligent content generation. "
     "Formatting (font, size, color, bold, italic) of each text box is preserved."
 )
 
 # ---------------- Sidebar: Config ----------------
 st.sidebar.header("⚙️ Configuration")
 
-st.sidebar.info("💡 **Using smart local AI generator** — No API needed, completely free!")
+st.sidebar.success("🚀 **Powered by Perplexity API** — Advanced AI text generation with intelligent fallbacks!")
 
 beta_tone = st.sidebar.radio(
     "AI Text Tone",
@@ -49,13 +69,14 @@ st.sidebar.info(
   In PowerPoint: `:COMPANY_NAME:`, `:TITLE:`, `:SPONSOR_NAME:`  
   In Excel: rows with labels like "Company name", "Title", "Sponsor name"
 
-**2. AI-generated prompts (local)**  
+**2. AI-generated prompts (Perplexity API)**  
 - In PowerPoint:  
   `[AI: Write a teaser about {Company} in {Industry}]`  
   or  
   `[AI: Write about {COMPANY_NAME} in {LOCATION_COUNTRY}]`  
 - Column-based: tokens match Excel columns  
-- Row-based: tokens match canonical tags (COMPANY_NAME, etc.)
+- Row-based: tokens match canonical tags (COMPANY_NAME, etc.)  
+- Uses Perplexity's LLM for intelligent, context-aware generation
 
 **Row-based format** automatically handles label variations:  
 - "Company name", "Company Name", "Name of company" → all work!  
@@ -64,862 +85,6 @@ st.sidebar.info(
 Text box formatting is preserved when content is replaced.
 """
 )
-
-
-# ---------------- Smart local text generation ----------------
-def normalize_label(label: str) -> str:
-    """Normalize Excel label for consistent matching."""
-    if not isinstance(label, str):
-        return ""
-    # Lowercase, strip spaces, remove punctuation
-    normalized = label.lower().strip()
-    # Remove common punctuation but keep underscores
-    normalized = re.sub(r'[^\w\s]', '', normalized)
-    # Replace multiple spaces with single space
-    normalized = re.sub(r'\s+', ' ', normalized)
-    return normalized
-
-
-def detect_excel_format(df: pd.DataFrame) -> str:
-    """
-    Detect if Excel is column-based or row-based format.
-    
-    Returns:
-        'column-based': Traditional format where each column is a field
-        'row-based': Label-Value pair format where rows contain field definitions
-    """
-    # Check if first two columns look like Label-Value pairs
-    if len(df.columns) >= 2:
-        first_col = df.columns[0]
-        second_col = df.columns[1]
-        
-        # Common indicators of row-based format
-        label_indicators = ['label', 'field', 'name', 'key', 'question', 'item']
-        value_indicators = ['value', 'answer', 'data', 'content', 'response']
-        
-        first_lower = str(first_col).lower()
-        second_lower = str(second_col).lower()
-        
-        # Check column names
-        is_label_value = (
-            any(ind in first_lower for ind in label_indicators) and
-            any(ind in second_lower for ind in value_indicators)
-        )
-        
-        if is_label_value:
-            return 'row-based'
-        
-        # Check content: if first column has question-like text
-        if len(df) > 0:
-            first_values = df.iloc[:, 0].dropna().astype(str).head(5)
-            # Check if values look like labels (contain spaces, question marks, colons)
-            label_like_count = sum(
-                1 for v in first_values 
-                if len(v) > 10 and (' ' in v or ':' in v or '?' in v)
-            )
-            if label_like_count >= 3:  # If 3+ rows look like labels
-                return 'row-based'
-    
-    # Default to column-based
-    return 'column-based'
-
-
-def parse_hybrid_excel(df: pd.DataFrame, sheet_name: str = None, use_namespacing: bool = False) -> dict:
-    """
-    Parse Excel in BOTH column-based and row-based formats simultaneously.
-    
-    - Column-based: First row (headers) become field names, second row has values
-    - Row-based: First column = labels, second column = values
-    
-    This hybrid approach handles any Excel structure.
-    
-    Args:
-        df: DataFrame to parse
-        sheet_name: Name of the sheet (for namespacing)
-        use_namespacing: If True, prefix keys with sheet name
-    
-    Returns:
-        dict: {normalized_label: value}
-    """
-    data_dict = {}
-    
-    # PART 1: Read as COLUMN-based (headers = field names)
-    if len(df) > 0 and len(df.columns) > 0:
-        # Use first data row as values
-        first_row = df.iloc[0]
-        for col_name in df.columns:
-            if pd.isna(col_name) or str(col_name).strip() == '':
-                continue
-            
-            normalized = normalize_label(str(col_name))
-            if use_namespacing and sheet_name:
-                sheet_prefix = normalize_label(sheet_name)
-                normalized = f"{sheet_prefix}.{normalized}"
-            
-            value = first_row[col_name]
-            data_dict[normalized] = "" if pd.isna(value) else str(value)
-    
-    # PART 2: Read as ROW-based (column 0 = labels, column 1 = values)
-    if len(df.columns) >= 2:
-        label_col = df.columns[0]
-        value_col = df.columns[1]
-        
-        for idx, row in df.iterrows():
-            label = row[label_col]
-            value = row[value_col]
-            
-            # Skip empty labels
-            if pd.isna(label) or str(label).strip() == '':
-                continue
-            
-            normalized = normalize_label(str(label))
-            if use_namespacing and sheet_name:
-                sheet_prefix = normalize_label(sheet_name)
-                normalized = f"{sheet_prefix}.{normalized}"
-            
-            # Only add if not already present from column-based reading
-            # (row-based takes precedence if there's overlap)
-            data_dict[normalized] = "" if pd.isna(value) else str(value)
-    
-    return data_dict
-
-
-def parse_row_based_excel(df: pd.DataFrame, sheet_name: str = None, use_namespacing: bool = False) -> dict:
-    """
-    Parse row-based Excel format into a normalized key-value dictionary.
-    
-    Expects Excel with structure:
-    - Column 0: Labels/Questions
-    - Column 1: Values/Answers
-    - Optional: Column 2+ for categories/sections
-    
-    Args:
-        df: DataFrame to parse
-        sheet_name: Name of the sheet (for namespacing)
-        use_namespacing: If True, prefix keys with sheet name (e.g., "financials.total_cost")
-    
-    Returns:
-        dict: {normalized_label: value}
-    """
-    data_dict = {}
-    
-    # Use first two columns as label-value
-    label_col = df.columns[0]
-    value_col = df.columns[1] if len(df.columns) > 1 else df.columns[0]
-    
-    for idx, row in df.iterrows():
-        label = row[label_col]
-        value = row[value_col]
-        
-        # Skip empty labels
-        if pd.isna(label) or str(label).strip() == '':
-            continue
-        
-        # Normalize the label
-        normalized = normalize_label(str(label))
-        
-        # Add sheet namespacing if requested
-        if use_namespacing and sheet_name:
-            sheet_prefix = normalize_label(sheet_name)
-            normalized = f"{sheet_prefix}.{normalized}"
-        
-        # Store the value (convert NaN to empty string)
-        data_dict[normalized] = "" if pd.isna(value) else str(value)
-    
-    return data_dict
-
-
-def parse_multi_sheet_excel(excel_file, use_namespacing: bool = False) -> tuple:
-    """
-    Read all sheets from an Excel file and merge into unified knowledge base.
-    
-    Args:
-        excel_file: File-like object or path to Excel (.xlsx or .xlsm)
-        use_namespacing: If True, prefix keys with sheet names
-    
-    Returns:
-        tuple: (unified_data_dict, sheet_info_list)
-    """
-    # Read all sheets (supports both .xlsx and .xlsm, macros ignored)
-    sheets_dict = pd.read_excel(excel_file, sheet_name=None, engine='openpyxl')
-    
-    unified_data = {}
-    sheet_info = []
-    
-    for sheet_name, df in sheets_dict.items():
-        if df.empty:
-            continue
-        
-        # In multi-sheet mode, try to parse everything as HYBRID (both row and column)
-        # This reads both column headers as fields AND label/value pairs
-        try:
-            sheet_data = parse_hybrid_excel(df, sheet_name, use_namespacing)
-            
-            if sheet_data:  # Only count if we got data
-                # Merge into unified dict (later sheets override earlier ones if no namespacing)
-                unified_data.update(sheet_data)
-                
-                sheet_info.append({
-                    'name': sheet_name,
-                    'format': 'hybrid (row+column)',
-                    'fields': len(sheet_data)
-                })
-            else:
-                sheet_info.append({
-                    'name': sheet_name,
-                    'format': 'empty or invalid',
-                    'fields': 0
-                })
-        except Exception as e:
-            sheet_info.append({
-                'name': sheet_name,
-                'format': f'error: {str(e)[:30]}',
-                'fields': 0
-            })
-    
-    return unified_data, sheet_info
-
-
-def fuzzy_match_label(target: str, available_labels: list, threshold: float = 0.6) -> str:
-    """
-    Find the best matching label using fuzzy string matching.
-    
-    Args:
-        target: The label to match
-        available_labels: List of available labels
-        threshold: Minimum similarity score (0-1)
-    
-    Returns:
-        Best matching label or None
-    """
-    normalized_target = normalize_label(target)
-    
-    # Try exact match first
-    if normalized_target in available_labels:
-        return normalized_target
-    
-    # Try fuzzy matching
-    matches = get_close_matches(normalized_target, available_labels, n=1, cutoff=threshold)
-    
-    if matches:
-        return matches[0]
-    
-    return None
-
-
-def get_module_field_mappings() -> dict:
-    """
-    Define module-specific field mappings for different Excel formats.
-    
-    Each module (1, 2, 3) uses different labels for the same logical field.
-    This maps each module's specific labels to canonical PPT placeholder tags.
-    
-    Returns:
-        dict: {module_name: {PPT_TAG: excel_label}}
-    """
-    return {
-        "Module1": {
-            "ISSUER": "sponsor name",
-            "INDUSTRY": "primary focus area",
-            "JURISDICTION": "country of incorporation",
-            "ISSUANCE_TYPE": "financing type",
-            "INITIAL_NOTIONAL": "total financing amount",
-            "COUPON_RATE": "coupon rate",
-            "COUPON_FREQUENCY": "coupon frequency",
-            "TENOR": "requested tenor",
-            "CLIENT_SUMMARY": "sponsor summary",
-            "PROJECT_HIGHLIGHT": "sponsor background investment strategy"
-        },
-        "Module2": {
-            "ISSUER": "company legal name",
-            "INDUSTRY": "primary industry",
-            "JURISDICTION": "country of incorporation",
-            "ISSUANCE_TYPE": "financing type",
-            "INITIAL_NOTIONAL": "total financing amount",
-            "COUPON_RATE": "coupon rate",
-            "COUPON_FREQUENCY": "coupon frequency",
-            "TENOR": "requested tenor",
-            "CLIENT_SUMMARY": "company overview business model",
-            "PROJECT_HIGHLIGHT": "company growth strategy financial projections"
-        },
-        "Module3": {
-            "ISSUER": "project name",
-            "INDUSTRY": "project type",
-            "JURISDICTION": "project location country",
-            "ISSUANCE_TYPE": "financing type",
-            "INITIAL_NOTIONAL": "total project cost",
-            "COUPON_RATE": "coupon rate",
-            "COUPON_FREQUENCY": "coupon frequency",
-            "TENOR": "project tenor",
-            "CLIENT_SUMMARY": "project description",
-            "PROJECT_HIGHLIGHT": "project overview technical specs impact"
-        }
-    }
-
-
-def detect_module_type(data_dict: dict) -> str:
-    """
-    Detect which module type based on Excel field names.
-    
-    Args:
-        data_dict: Dictionary of normalized_label -> value
-    
-    Returns:
-        Module type: "Module1", "Module2", "Module3", or None
-    """
-    module_mappings = get_module_field_mappings()
-    
-    # Score each module based on how many of its specific fields are present
-    scores = {}
-    
-    for module_name, field_map in module_mappings.items():
-        score = 0
-        # Check unique fields for each module
-        for tag, excel_label in field_map.items():
-            normalized = normalize_label(excel_label)
-            if normalized in data_dict:
-                score += 1
-        scores[module_name] = score
-    
-    # Return module with highest score (if any fields matched)
-    if scores:
-        best_module = max(scores, key=scores.get)
-        if scores[best_module] > 0:
-            st.info(f"🔍 **Detected format:** {best_module}")
-            return best_module
-    
-    return None
-
-
-def create_placeholder_mapping() -> dict:
-    """
-    Define the mapping between PPT placeholder tags and canonical field names.
-    
-    This allows flexible wording in Excel while maintaining consistent PPT templates.
-    
-    Returns:
-        dict: {PPT_TAG: [list of possible Excel label variations]}
-    """
-    base_mapping = {
-        'COMPANY_NAME': ['company name', 'company', 'name of company', 'issuer', 'issuer name'],
-        'SPONSOR_NAME': ['sponsor name', 'sponsor', 'lead sponsor', 'project sponsor'],
-        'LOCATION_COUNTRY': ['location country', 'country', 'jurisdiction', 'location'],
-        'LOCATION_STATE': ['location state', 'state', 'province', 'region'],
-        'ASSET_TYPE': ['asset type', 'type of asset', 'asset class', 'sector'],
-        'PROJECT_TYPE': ['project type', 'type of project', 'development type'],
-        'UNIT': ['unit', 'capacity', 'size', 'scale'],
-        'TECHNOLOGY': ['technology', 'tech', 'technology type', 'technical approach'],
-        'INITIAL_INVESTMENT': ['initial investment', 'initial capex', 'phase 1 investment', 'startup cost'],
-        'FUTURE_INVESTMENT': ['future investment', 'expansion investment', 'phase 2 investment', 'growth capex'],
-        'CONTRACTOR': ['contractor', 'epc contractor', 'construction partner', 'builder'],
-        'OFFTAKER': ['offtaker', 'offtake partner', 'purchaser', 'buyer'],
-        'PROJECT_STATUS': ['project status', 'status', 'development stage', 'phase'],
-        'COD': ['cod', 'commercial operation date', 'operational date', 'completion date'],
-        'DESCRIPTION': ['description', 'project description', 'overview', 'summary'],
-        'TITLE': ['title', 'project title', 'project name', 'deal name'],
-        'INDUSTRY': ['industry', 'sector', 'vertical', 'market'],
-    }
-    
-    # Add module-specific mappings
-    module_mappings = get_module_field_mappings()
-    for module_name, field_map in module_mappings.items():
-        for tag, excel_label in field_map.items():
-            normalized = normalize_label(excel_label)
-            if tag in base_mapping:
-                # Add to existing list if not already there
-                if normalized not in base_mapping[tag]:
-                    base_mapping[tag].append(normalized)
-            else:
-                # Create new entry
-                base_mapping[tag] = [normalized]
-    
-    return base_mapping
-
-
-# ---------------- Smart local text generation ----------------
-def extract_structured_prompt_data(prompt_text: str) -> dict:
-    """
-    Extract structured data from prompts that follow the pattern:
-    'Paragraph 1: ... Use: "{value}"'
-    
-    Returns dict of extracted values and their context.
-    """
-    data = {}
-    
-    # Pattern: Use: "{value}" or use "{value}"
-    use_patterns = re.findall(r'[Uu]se:\s*["\']([^"\']+)["\']', prompt_text)
-    
-    # Map them to paragraph numbers if available
-    paragraphs = re.split(r'Paragraph \d+:', prompt_text)
-    
-    for idx, para in enumerate(paragraphs[1:], 1):  # Skip first split (before any paragraph)
-        # Extract all quoted strings in this paragraph
-        quoted = re.findall(r'["\']([^"\']{10,})["\']', para)  # At least 10 chars to avoid short labels
-        if quoted:
-            data[f'paragraph_{idx}'] = quoted
-    
-    # Also extract all quoted strings globally as fallback
-    all_quoted = re.findall(r'["\']([^"\']{10,})["\']', prompt_text)
-    data['all_values'] = all_quoted
-    
-    return data
-
-
-def generate_beta_text(prompt_text: str, row_data: pd.Series, tone: str = "short") -> str:
-    """
-    Generates text by interpreting the prompt after {token} substitution.
-    Now with sophisticated template matching for structured content.
-    """
-    
-    prompt_lower = prompt_text.lower()
-    
-    # **NEW: Detect 2-3 word sector label pattern**
-    # Pattern: "generate a 1-3 word sector label" or "write a short sector label"
-    is_sector_label = (
-        ('sector label' in prompt_lower or 'short label' in prompt_lower) and
-        ('1-3 word' in prompt_lower or '2-3 word' in prompt_lower or 'short' in prompt_lower)
-    )
-    
-    if is_sector_label:
-        # Extract Sector and Project_Type from the prompt
-        # Look for patterns like: Sector = "New Energy", Project_Type = "..."
-        
-        # Check if "solar" is mentioned
-        if 'solar' in prompt_text.lower():
-            return "Solar Energy"
-        # Check if "wind" is mentioned
-        elif 'wind' in prompt_text.lower():
-            return "Wind Energy"
-        # Check if "battery" or "storage" is mentioned
-        elif 'battery' in prompt_text.lower() or 'storage' in prompt_text.lower():
-            return "Energy Storage"
-        # Check if "hydro" is mentioned
-        elif 'hydro' in prompt_text.lower():
-            return "Hydro Energy"
-        # Check if just "New Energy" or "Renewable"
-        elif 'new energy' in prompt_text.lower() or 'renewable' in prompt_text.lower():
-            return "New Energy"
-        else:
-            # Default fallback
-            return "New Energy"
-    
-    # **NEW: Detect 1-sentence anonymous client description**
-    # Pattern: "write one anonymous sentence starting with 'The client'"
-    is_client_oneliner = (
-        'the client' in prompt_lower and
-        ('one sentence' in prompt_lower or 'anonymous' in prompt_lower or 'briefly states' in prompt_lower)
-    )
-    
-    if is_client_oneliner:
-        # Extract Asset_Description and Country from the prompt
-        # Look for quoted strings which are likely the asset description and country
-        quoted_values = re.findall(r'["\']([^"\']{15,})["\']', prompt_text)
-        
-        if len(quoted_values) >= 2:
-            asset_description = quoted_values[0]
-            country = quoted_values[1] if len(quoted_values) > 1 else "the region"
-            
-            # Generate the sentence
-            # Check if it's operating or developing
-            if 'operat' in prompt_text.lower() and 'develop' in prompt_text.lower():
-                return f"The client is developing and operating {asset_description} in {country}."
-            elif 'operat' in prompt_text.lower():
-                return f"The client is operating {asset_description} in {country}."
-            else:
-                return f"The client is developing {asset_description} in {country}."
-        elif len(quoted_values) == 1:
-            asset_description = quoted_values[0]
-            return f"The client is developing {asset_description}."
-        else:
-            # Fallback
-            return "The client is developing renewable energy projects."
-    
-    # **EXISTING: Detect 3-paragraph "Project Highlight" structure**
-    # This is the most common pattern in the user's examples
-    is_project_highlight = (
-        'paragraph 1:' in prompt_lower and 
-        'paragraph 2:' in prompt_lower and 
-        'paragraph 3:' in prompt_lower
-    )
-    
-    if is_project_highlight:
-        # Extract structured data from the prompt
-        data = extract_structured_prompt_data(prompt_text)
-        paragraphs = []
-        
-        # **PARAGRAPH 1 FORMULA:**
-        # Sentence 1: "The client {Company_Operations}."
-        # Sentence 2: "The proposed project is the {Project_Focus}."
-        if 'paragraph_1' in data and len(data['paragraph_1']) >= 1:
-            company_ops = data['paragraph_1'][0]
-            project_focus = data['paragraph_1'][1] if len(data['paragraph_1']) > 1 else ""
-            
-            # Handle "called" pattern: extract project focus from 'called "{Project_Focus}"'
-            if not project_focus and 'called' in prompt_text:
-                called_match = re.search(r'called\s+["\']([^"\']+)["\']', prompt_text, re.IGNORECASE)
-                if called_match:
-                    project_focus = called_match.group(1)
-            
-            para1_sent1 = f"The client {company_ops}."
-            para1_sent2 = f"The proposed project is the {project_focus}." if project_focus else ""
-            paragraphs.append(f"{para1_sent1} {para1_sent2}".strip())
-        
-        # **PARAGRAPH 2 FORMULA:**
-        # Sentence 1: "The client {Service_Scope}."
-        # Sentence 2: "They {Partnership}." (handle verb forms)
-        # Sentence 3: "{Partnership_Benefit}."
-        if 'paragraph_2' in data and len(data['paragraph_2']) >= 1:
-            service_scope = data['paragraph_2'][0]
-            partnership = data['paragraph_2'][1] if len(data['paragraph_2']) > 1 else ""
-            partnership_benefit = data['paragraph_2'][2] if len(data['paragraph_2']) > 2 else ""
-            
-            para2_sent1 = f"The client {service_scope}."
-            
-            # Handle partnership verb form
-            if partnership:
-                partnership_clean = partnership.strip()
-                if partnership_clean.startswith('partner with') or partnership_clean.startswith('partner in'):
-                    para2_sent2 = f"They {partnership_clean}."
-                elif partnership_clean.startswith('partnered with') or 'partnered' in partnership_clean:
-                    para2_sent2 = f"They are {partnership_clean}."
-                else:
-                    para2_sent2 = f"They {partnership_clean}."
-            else:
-                para2_sent2 = ""
-            
-            para2_sent3 = f"{partnership_benefit}." if partnership_benefit else ""
-            
-            para2 = f"{para2_sent1} {para2_sent2} {para2_sent3}".strip()
-            paragraphs.append(para2)
-        
-        # **PARAGRAPH 3 FORMULA:**
-        # Single sentence: "The project will commence with an initial investment of {Initial}, 
-        #                   with a projected expansion to {Expansion} {Path}."
-        if 'paragraph_3' in data or 'all_values' in data:
-            # Look for the investment sentence pattern directly in prompt
-            investment_pattern = re.search(
-                r'The project will commence with an initial investment of\s+([^,]+),\s*with a projected expansion to\s+([^.]+)',
-                prompt_text,
-                re.IGNORECASE
-            )
-            
-            if investment_pattern:
-                para3 = f"The project will commence with an initial investment of {investment_pattern.group(1)}, with a projected expansion to {investment_pattern.group(2)}."
-                paragraphs.append(para3)
-        
-        # Join paragraphs with double newline
-        result = "\n\n".join(p for p in paragraphs if p)
-        if result:
-            return result
-    
-    # **FALLBACK: Original logic for other prompt types**
-    
-    # Detect specific length requirements in the prompt
-    word_count = None
-    sentence_count = None
-    paragraph_count = None
-    
-    # Look for "X words", "X-Y words"
-    word_match = re.search(r'(\d+)(?:-(\d+))?\s+words?', prompt_lower)
-    if word_match:
-        word_count = (int(word_match.group(1)), int(word_match.group(2) or word_match.group(1)))
-    
-    # Look for "X sentences", "X-Y sentences"
-    sent_match = re.search(r'(\d+)(?:-(\d+))?\s+sentences?', prompt_lower)
-    if sent_match:
-        sentence_count = (int(sent_match.group(1)), int(sent_match.group(2) or sent_match.group(1)))
-    
-    # Look for "X paragraphs", "X-Y paragraphs"
-    para_match = re.search(r'(\d+)(?:-(\d+))?\s+paragraphs?', prompt_lower)
-    if para_match:
-        paragraph_count = (int(para_match.group(1)), int(para_match.group(2) or para_match.group(1)))
-    
-    # Detect content type
-    is_structured = "follow this structure" in prompt_lower or "sentence 1:" in prompt_lower
-    is_professional = "professional" in prompt_lower or "formal" in prompt_lower or "business" in prompt_lower
-    
-    # Extract all the actual data values from the prompt (these replaced the tokens)
-    values = []
-    
-    # Find quoted text
-    quoted = re.findall(r'"([^"]+)"', prompt_text)
-    values.extend(quoted)
-    
-    # Find dollar amounts
-    amounts = re.findall(r'\$[\d,]+(?:\s*(?:million|billion|thousand))?', prompt_text, re.IGNORECASE)
-    values.extend(amounts)
-    
-    # Find capitalized multi-word phrases
-    capitalized = re.findall(r'\b[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)*\b', prompt_text)
-    excluded = {'Using', 'Use', 'Write', 'Follow', 'Sentence', 'Do', 'Excel', 'English', 'Initial', 'Future', 'The', 'Based'}
-    capitalized = [c for c in capitalized if c not in excluded and len(c) > 2]
-    values.extend(capitalized)
-    
-    # Find longer descriptive phrases (likely field values)
-    technical_terms = re.findall(r'\b[a-z]+(?:\s+[a-z]+){1,5}\b', prompt_text)
-    technical_terms = [t for t in technical_terms if len(t) > 15 and 'write' not in t and 'using' not in t and 'only' not in t]
-    values.extend(technical_terms[:3])
-    
-    # Remove duplicates
-    seen = set()
-    unique_values = []
-    for v in values:
-        v_clean = v.strip()
-        if v_clean and v_clean not in seen and len(v_clean) > 1:
-            seen.add(v_clean)
-            unique_values.append(v_clean)
-    
-    # Generate content based on requirements
-    if word_count and word_count[1] <= 10:
-        # Very short: 3-10 words
-        if len(unique_values) >= 1:
-            return unique_values[0]
-        else:
-            return "Professional solutions"
-    
-    elif is_structured and paragraph_count:
-        # Structured multi-paragraph request
-        paragraphs = []
-        
-        # Identify key components
-        client = "The client"
-        location = next((v for v in unique_values if any(place in v for place in ['United', 'States', 'Kingdom', 'Europe', 'Asia', 'Africa', 'America'])), None)
-        technology = next((v for v in unique_values if any(tech in v.lower() for tech in ['solar', 'wind', 'energy', 'power', 'technology', 'system', 'renewable'])), None)
-        partners = [v for v in unique_values if any(word in v.lower() for word in ['contractor', 'provider', 'partner', 'company', 'corp'])]
-        amounts_list = [v for v in unique_values if '$' in v]
-        descriptions = [v for v in unique_values if len(v) > 40]
-        
-        # Build paragraphs
-        for i in range(paragraph_count[1]):
-            sentences = []
-            
-            if i == 0:
-                # First paragraph: Introduction
-                if technology and location:
-                    sentences.append(f"{client} is developing a {technology} project in {location}.")
-                elif technology:
-                    sentences.append(f"{client} is developing a {technology} project.")
-                elif len(unique_values) >= 2:
-                    sentences.append(f"{client} is undertaking {unique_values[0]} in {unique_values[1]}.")
-                else:
-                    sentences.append(f"{client} is pursuing a strategic development initiative.")
-                
-                if descriptions:
-                    sentences.append(f"The project encompasses {descriptions[0].lower()}.")
-                elif len(unique_values) >= 3:
-                    sentences.append(f"This involves {unique_values[2].lower()}.")
-            
-            elif i == 1:
-                # Second paragraph: Development/Partners
-                if partners:
-                    partner_text = " and ".join(partners[:2])
-                    sentences.append(f"The project will be developed in collaboration with {partner_text}.")
-                    sentences.append(f"These partnerships ensure successful delivery and operation.")
-                else:
-                    sentences.append(f"The initiative leverages proven methodologies and industry expertise.")
-                    sentences.append(f"Development will proceed in phases to ensure optimal outcomes.")
-            
-            elif i == 2:
-                # Third paragraph: Investment/Financial
-                if len(amounts_list) >= 2:
-                    sentences.append(f"The initial investment is {amounts_list[0]}, with planned expansion investment of {amounts_list[1]}.")
-                elif len(amounts_list) == 1:
-                    sentences.append(f"The project represents an investment of {amounts_list[0]}.")
-                else:
-                    sentences.append(f"The project is backed by substantial capital commitment.")
-                sentences.append(f"This financial structure supports both immediate development and future growth.")
-            
-            if sentences:
-                paragraphs.append(" ".join(sentences))
-        
-        return "\n\n".join(paragraphs)
-    
-    elif paragraph_count or (sentence_count and sentence_count[1] >= 3):
-        # Multi-sentence or paragraph content
-        sentences = []
-        target_sentences = sentence_count[1] if sentence_count else (paragraph_count[1] * 3 if paragraph_count else 3)
-        
-        # Build multiple sentences
-        if len(unique_values) >= 2:
-            sentences.append(f"{unique_values[0]} delivers innovative solutions in {unique_values[1]}.")
-        elif len(unique_values) >= 1:
-            sentences.append(f"{unique_values[0]} represents excellence in their field.")
-        else:
-            sentences.append("Professional solutions delivered with expertise.")
-        
-        if target_sentences >= 2:
-            if len(unique_values) >= 3:
-                sentences.append(f"Leveraging {unique_values[2]}, the organization drives exceptional outcomes.")
-            else:
-                sentences.append("Advanced capabilities ensure outstanding results.")
-        
-        if target_sentences >= 3:
-            sentences.append("Proven track record of success across diverse initiatives.")
-        
-        if target_sentences >= 4:
-            sentences.append("Strategic partnerships and innovation create lasting value.")
-        
-        return " ".join(sentences[:target_sentences])
-    
-    else:
-        # Default: short single sentence
-        if len(unique_values) >= 2:
-            return f"{unique_values[0]} delivers excellence in {unique_values[1]}."
-        elif len(unique_values) >= 1:
-            return f"{unique_values[0]} drives innovation and results."
-        else:
-            return "Excellence delivered through proven expertise."
-
-
-# -------- Placeholder logic --------
-def resolve_tag_to_value(tag: str, data_dict: dict, placeholder_mapping: dict, module_type: str = None) -> str:
-    """
-    Resolve a :TAG: placeholder to its value using the mapping and data dictionary.
-    
-    Args:
-        tag: The tag name (e.g., 'COMPANY_NAME')
-        data_dict: Dictionary of normalized_label -> value
-        placeholder_mapping: Dictionary of TAG -> [possible label variations]
-        module_type: Detected module type ("Module1", "Module2", "Module3")
-    
-    Returns:
-        The resolved value or empty string if not found
-    """
-    # If we have a detected module, prioritize module-specific labels
-    if module_type:
-        module_mappings = get_module_field_mappings()
-        if module_type in module_mappings and tag in module_mappings[module_type]:
-            module_label = module_mappings[module_type][tag]
-            normalized = normalize_label(module_label)
-            if normalized in data_dict:
-                return data_dict[normalized]
-    
-    # Check if this tag is in our mapping
-    if tag in placeholder_mapping:
-        possible_labels = placeholder_mapping[tag]
-        
-        # Try each possible label variation
-        for label_variation in possible_labels:
-            normalized = normalize_label(label_variation)
-            if normalized in data_dict:
-                return data_dict[normalized]
-        
-        # If no exact match, try fuzzy matching
-        fuzzy_match = fuzzy_match_label(possible_labels[0], list(data_dict.keys()))
-        if fuzzy_match and fuzzy_match in data_dict:
-            return data_dict[fuzzy_match]
-    
-    # Try using the tag itself as a label (for backwards compatibility)
-    normalized_tag = normalize_label(tag)
-    if normalized_tag in data_dict:
-        return data_dict[normalized_tag]
-    
-    # Try fuzzy match on the tag
-    fuzzy_match = fuzzy_match_label(tag, list(data_dict.keys()))
-    if fuzzy_match and fuzzy_match in data_dict:
-        return data_dict[fuzzy_match]
-    
-    return ""
-
-
-def process_placeholder(
-    placeholder: str,
-    row_data: pd.Series,
-    excel_columns: list,
-    beta_tone: str,
-    missing_to_blank: bool,
-    data_dict: dict = None,
-    placeholder_mapping: dict = None,
-    excel_format: str = 'column-based',
-    module_type: str = None,
-) -> str:
-    """
-    Resolve a placeholder to final text using smart local generation.
-
-    Supports multiple formats:
-    - Direct: "Title" → row_data["Title"] (column-based)
-    - Tag: ":COMPANY_NAME:" → resolved via mapping (row-based)
-    - AI: "AI: Write teaser about {Company}" → smart text generation
-    """
-    # Handle :TAG: format (new row-based system)
-    tag_match = re.match(r'^:([A-Z_]+):$', placeholder.strip())
-    if tag_match and data_dict is not None and placeholder_mapping is not None:
-        tag = tag_match.group(1)
-        return resolve_tag_to_value(tag, data_dict, placeholder_mapping, module_type)
-    
-    # AI placeholder - always use local generation
-    if placeholder.startswith("AI:"):
-        prompt_text = placeholder[3:].strip()
-        
-        # Handle double "AI:" at the start (common error)
-        if prompt_text.startswith("AI:"):
-            prompt_text = prompt_text[3:].strip()
-
-        # Track which tokens couldn't be found
-        missing_tokens = []
-        
-        # Replace {{ColumnName}} or {ColumnName} with actual values from Excel row
-        for col in excel_columns:
-            if col in row_data.index:
-                value = "" if pd.isna(row_data[col]) else str(row_data[col])
-                # Support both {{}} and {} formats
-                prompt_text = prompt_text.replace(f"{{{{{col}}}}}", value)  # {{ColumnName}}
-                prompt_text = prompt_text.replace(f"{{{col}}}", value)       # {ColumnName}
-        
-        # Also support {TAG} format for row-based data
-        if data_dict is not None and placeholder_mapping is not None:
-            # Find all {TAG} or {{TAG}} patterns
-            tokens = re.findall(r'\{\{?([A-Z_]+)\}?\}?', prompt_text)
-            for token in tokens:
-                value = resolve_tag_to_value(token, data_dict, placeholder_mapping, module_type)
-                prompt_text = prompt_text.replace(f"{{{{{token}}}}}", value)
-                prompt_text = prompt_text.replace(f"{{{token}}}", value)
-        
-        # Fix common typos: {{TOKEN} with only one closing brace
-        prompt_text = re.sub(r'\{\{([^}]+)\}(?!\})', r'{{\1}}', prompt_text)
-        
-        # Find remaining unreplaced tokens to report to user
-        remaining_tokens = re.findall(r'\{\{([^}]+)\}\}', prompt_text)
-        remaining_tokens.extend(re.findall(r'\{([^}]+)\}', prompt_text))
-        
-        if remaining_tokens:
-            st.warning(f"⚠️ Missing Excel columns: {', '.join(set(remaining_tokens))}. Add these columns to your Excel or remove from prompt.")
-        
-        # Replace any remaining {{TOKEN}} or {TOKEN} with blank instead of error message
-        prompt_text = re.sub(r'\{\{[^}]+\}\}', '', prompt_text)
-        prompt_text = re.sub(r'\{[^}]+\}', '', prompt_text)
-
-        st.write(f"🔍 DEBUG - After token replacement: '{prompt_text[:200]}...'")
-        
-        generated = generate_beta_text(prompt_text, row_data, beta_tone)
-        
-        st.write(f"✅ DEBUG - Generated text: '{generated[:200]}...'")
-        return generated
-
-    # Direct placeholder - check if we have row_data (column-based) or data_dict (hybrid/row-based)
-    if data_dict is not None and placeholder_mapping is not None:
-        # Using hybrid/row-based mode - try to resolve from data_dict
-        col_name = placeholder.strip()
-        normalized = normalize_label(col_name)
-        
-        if normalized in data_dict:
-            return data_dict[normalized]
-        
-        # Try fuzzy match
-        fuzzy_match = fuzzy_match_label(col_name, list(data_dict.keys()))
-        if fuzzy_match and fuzzy_match in data_dict:
-            return data_dict[fuzzy_match]
-        
-        return "" if missing_to_blank else f"[MISSING FIELD: {col_name}]"
-    
-    # Legacy column-based mode with row_data
-    col_name = placeholder.strip()
-    if row_data is not None and col_name in row_data.index:
-        val = row_data[col_name]
-        return "" if pd.isna(val) else str(val)
-    else:
-        return "" if missing_to_blank else f"[MISSING COLUMN: {col_name}]"
-
 
 # ---------------- File uploads ----------------
 col1, col2 = st.columns(2)
@@ -940,7 +105,6 @@ with col2:
         key="excel",
         help="Supports .xlsx and .xlsm files. Macros in .xlsm files are ignored for security."
     )
-
 
 # ---------------- Template inspector (optional helper) ----------------
 if template_file:
@@ -966,7 +130,6 @@ if template_file:
         except Exception as e:
             st.error(f"Error inspecting template: {e}")
 
-
 # ---------------- Main generation flow ----------------
 if template_file and excel_file:
     st.divider()
@@ -977,6 +140,8 @@ if template_file and excel_file:
         file_name = excel_file.name if hasattr(excel_file, 'name') else 'unknown'
         if file_name.endswith('.xlsm'):
             st.info("ℹ️ **XLSM file detected**: Reading data only, macros are disabled for security")
+        
+        logger.info(f"Reading Excel file: {file_name}")
         
         # Check if multi-sheet (pandas reads .xlsm same as .xlsx, ignores macros)
         all_sheets = pd.read_excel(excel_file, sheet_name=None, engine='openpyxl')
@@ -990,6 +155,7 @@ if template_file and excel_file:
             # Multi-sheet Excel
             is_multi_sheet = True
             st.info(f"📚 **Multi-sheet Excel detected:** {num_sheets} sheets found")
+            logger.info(f"Multi-sheet mode: {num_sheets} sheets")
             
             # Show sheet names
             with st.expander("📄 Sheet names"):
@@ -997,6 +163,7 @@ if template_file and excel_file:
                     st.write(f"- {sheet_name}")
     except Exception as e:
         st.error(f"Error reading Excel: {e}")
+        logger.error(f"Excel read error: {e}")
         st.stop()
 
     # Handle single vs multi-sheet
@@ -1011,6 +178,7 @@ if template_file and excel_file:
         # Detect Excel format
         excel_format = detect_excel_format(df)
         st.info(f"📋 **Detected Excel format:** {excel_format}")
+        logger.info(f"Detected format: {excel_format}")
     else:
         # Multi-sheet: show first sheet as preview
         first_sheet_name = list(all_sheets.keys())[0]
@@ -1034,16 +202,35 @@ if template_file and excel_file:
         placeholder_mapping = create_placeholder_mapping()
         
         st.success(f"✅ Parsed {len(data_dict)} total fields from {num_sheets} sheets")
+        logger.info(f"Parsed {len(data_dict)} fields from multi-sheet Excel")
         
         with st.expander("🔍 View parsed data by sheet"):
             for info in sheet_info:
                 st.write(f"**{info['name']}**: {info['format']} - {info['fields']} fields")
         
-        with st.expander("🔍 View all parsed fields"):
-            for key, value in list(data_dict.items())[:20]:
-                st.write(f"**{key}**: {value[:100] if value else '(empty)'}...")
-            if len(data_dict) > 20:
-                st.write(f"... and {len(data_dict) - 20} more fields")
+        with st.expander("� View ALL parsed Excel fields (comprehensive)"):
+            st.write(f"**Total fields extracted: {len(data_dict)}**")
+            st.write("Below are ALL labels and values found in your Excel file:")
+            st.write("---")
+            
+            # Show all fields in a nice table
+            if data_dict:
+                import pandas as pd
+                display_data = []
+                for key, value in sorted(data_dict.items()):
+                    value_preview = str(value)[:80] + "..." if len(str(value)) > 80 else str(value)
+                    display_data.append({
+                        "Excel Label (normalized)": key,
+                        "Value Preview": value_preview
+                    })
+                
+                df_display = pd.DataFrame(display_data)
+                st.dataframe(df_display, use_container_width=True)
+                
+                st.write("---")
+                st.info("💡 **Tip:** You can use any of these labels in your PPT template as `:LABEL:` format. The system uses fuzzy matching, so slight variations work!")
+            else:
+                st.warning("No fields were extracted. Check if your Excel has a Label/Value format.")
         
         # For multi-sheet, we don't need row selection
         row_data = None
@@ -1058,22 +245,46 @@ if template_file and excel_file:
         
         st.info(f"📋 **Hybrid mode**: Reading both column headers and row-based Label/Value pairs")
         st.success(f"✅ Parsed {len(data_dict)} fields from Excel")
+        logger.info(f"Parsed {len(data_dict)} fields in hybrid mode")
         
-        with st.expander("🔍 View parsed fields"):
+        with st.expander("� View ALL parsed Excel fields (comprehensive)"):
+            st.write(f"**Total fields extracted: {len(data_dict)}**")
+            st.write("Below are ALL labels and values found in your Excel file:")
+            st.write("---")
+            
+            # Show all fields in a nice table
+            if data_dict:
+                display_data = []
+                for key, value in sorted(data_dict.items()):
+                    value_preview = str(value)[:80] + "..." if len(str(value)) > 80 else str(value)
+                    display_data.append({
+                        "Excel Label (normalized)": key,
+                        "Value Preview": value_preview
+                    })
+                
+                df_display = pd.DataFrame(display_data)
+                st.dataframe(df_display, use_container_width=True)
+                
+                st.write("---")
+                st.info("💡 **Tip:** You can use any of these labels in your PPT template as `:LABEL:` format. The system uses fuzzy matching, so slight variations work!")
+            else:
+                st.warning("No fields were extracted. Check if your Excel has a Label/Value format.")
             for key, value in list(data_dict.items())[:20]:
                 st.write(f"**{key}**: {value[:100] if value else '(empty)'}...")
             if len(data_dict) > 20:
                 st.write(f"... and {len(data_dict) - 20} more fields")
         
         # For hybrid, we don't need to select a row
-        row_data = None
+        row_data = pd.Series(dtype='object')  # Empty series for compatibility
         excel_columns = []
 
     # Load PPTX template
     try:
         prs = Presentation(template_file)
+        logger.info(f"Loaded PPTX with {len(prs.slides)} slides")
     except Exception as e:
         st.error(f"Error loading PPTX template: {e}")
+        logger.error(f"PPTX load error: {e}")
         st.stop()
 
     st.divider()
@@ -1088,244 +299,54 @@ if template_file and excel_file:
     # Button to generate
     if st.button("🚀 Generate PPTX", type="primary"):
         try:
+            logger.info("=== Starting PPTX generation ===")
+            
             # Detect module type from data
             module_type = detect_module_type(data_dict)
             if module_type:
                 st.success(f"✅ Using {module_type} field mappings")
+                logger.info(f"Detected module type: {module_type}")
             
-            # Count targets: text boxes + table cells
-            def count_text_targets(pres: Presentation) -> int:
-                total = 0
-                for s in pres.slides:
-                    for shp in s.shapes:
-                        if hasattr(shp, "text_frame"):
-                            total += 1
-                        elif getattr(shp, "has_table", False):
-                            tbl = shp.table
-                            for r in tbl.rows:
-                                total += len(r.cells)
-                return total
-
-            total_targets = count_text_targets(prs)
-            processed = 0
+            # CRITICAL DEBUG: Log the actual data_dict being passed to PPT filler
+            logger.info("="*80)
+            logger.info("CRITICAL DEBUG: data_dict being passed to fill_pptx:")
+            logger.info(f"  Keys count: {len(data_dict)}")
+            logger.info(f"  First 10 keys: {list(data_dict.keys())[:10]}")
+            for key in list(data_dict.keys())[:5]:
+                value_preview = str(data_dict[key])[:50]
+                logger.info(f"  '{key}' = '{value_preview}'")
+            logger.info("="*80)
+            
+            # Use the new fill_pptx function from ppt_filler module
             progress = st.progress(0.0)
             status = st.empty()
-
-            for slide in prs.slides:
-                for shape in slide.shapes:
-                    # Debug: show what type of shape we're looking at
-                    st.write(f"🔍 Found shape: {shape.name} (has text_frame: {hasattr(shape, 'text_frame')}, has_table: {getattr(shape, 'has_table', False)})")
-                    
-                    # Skip shapes without text capability
-                    if not hasattr(shape, "text_frame") and not getattr(shape, "has_table", False):
-                        processed += 1
-                        progress.progress(processed / max(total_targets, 1))
-                        continue
-                    
-                    # Handle tables
-                    if getattr(shape, "has_table", False):
-                        table = shape.table
-                        for r in table.rows:
-                            for cell in r.cells:
-                                original_text = cell.text
-                                if not original_text:
-                                    processed += 1
-                                    progress.progress(processed / max(total_targets, 1))
-                                    continue
-
-                                ai_matches = re.findall(r"\[AI:\s*(.+?)\]", original_text)
-                                direct_matches = re.findall(r"\[(?!AI:)(.+?)\]", original_text)
-                                # Also find :TAG: format placeholders
-                                tag_matches = re.findall(r":([A-Z_]+):", original_text)
-                                direct_matches.extend([f":{tag}:" for tag in tag_matches])
-
-                                if not direct_matches and not ai_matches:
-                                    processed += 1
-                                    progress.progress(processed / max(total_targets, 1))
-                                    continue
-
-                                new_text = original_text
-
-                                for placeholder in direct_matches:
-                                    replacement = process_placeholder(
-                                        placeholder,
-                                        row_data,
-                                        excel_columns,
-                                        beta_tone,
-                                        missing_to_blank,
-                                        data_dict,
-                                        placeholder_mapping,
-                                        excel_format,
-                                        module_type,
-                                    )
-                                    new_text = new_text.replace(f"[{placeholder}]", replacement)
-                                    # Also handle :TAG: format
-                                    if placeholder.startswith(':') and placeholder.endswith(':'):
-                                        new_text = new_text.replace(placeholder, replacement)
-
-                                for ai_prompt in ai_matches:
-                                    status.text(f"🤖 Generating text: {ai_prompt[:60]}...")
-                                    replacement = process_placeholder(
-                                        f"AI: {ai_prompt}",
-                                        row_data,
-                                        excel_columns,
-                                        beta_tone,
-                                        missing_to_blank,
-                                        data_dict,
-                                        placeholder_mapping,
-                                        excel_format,
-                                        module_type,
-                                    )
-                                    st.write(f"DEBUG: Original=[AI: {ai_prompt}], Replacement={replacement[:100]}")
-                                    new_text = new_text.replace(f"[AI: {ai_prompt}]", replacement)
-
-                                if new_text != original_text:
-                                    tf = cell.text_frame
-                                    if not tf.paragraphs:
-                                        cell.text = new_text
-                                    else:
-                                        para = tf.paragraphs[0]
-                                        if para.runs:
-                                            run0 = para.runs[0]
-                                            font = run0.font
-
-                                            tf.clear()
-                                            new_para = tf.paragraphs[0]
-                                            new_run = new_para.add_run()
-                                            new_run.text = new_text
-
-                                            if font.size:
-                                                new_run.font.size = font.size
-                                            if font.name:
-                                                new_run.font.name = font.name
-                                            if font.bold is not None:
-                                                new_run.font.bold = font.bold
-                                            if font.italic is not None:
-                                                new_run.font.italic = font.italic
-                                            if font.color and hasattr(font.color, 'rgb'):
-                                                new_run.font.color.rgb = font.color.rgb
-
-                                            new_para.alignment = para.alignment
-                                            new_para.level = para.level
-                                        else:
-                                            cell.text = new_text
-
-                                processed += 1
-                                progress.progress(processed / max(total_targets, 1))
-
-                        # Move to next shape
-                        continue
-
-                    # Handle regular text shapes (text boxes, rectangles, etc.)
-                    # Most shapes with text will have a text_frame attribute
-                    if not hasattr(shape, "text_frame"):
-                        processed += 1
-                        progress.progress(processed / max(total_targets, 1))
-                        continue
-
-                    original_text = shape.text
-                    if not original_text:
-                        processed += 1
-                        progress.progress(processed / max(total_targets, 1))
-                        continue
-
-                    st.write(f"  📝 Shape text preview: '{original_text[:100]}...'")
-                    
-                    # More forgiving regex that handles multi-line and missing closing brackets
-                    # First try standard format: [AI: ... ]
-                    ai_matches = re.findall(r"\[AI:\s*(.+?)\]", original_text, re.DOTALL)
-                    
-                    # If no matches, try without closing bracket (for malformed placeholders)
-                    if not ai_matches:
-                        ai_no_close = re.findall(r"\[AI:\s*(.+)$", original_text, re.DOTALL)
-                        if ai_no_close:
-                            st.warning(f"⚠️ Found AI placeholder without closing bracket ]")
-                            ai_matches = ai_no_close
-                    
-                    direct_matches = re.findall(r"\[(?!AI:)(.+?)\]", original_text)
-                    # Also find :TAG: format placeholders
-                    tag_matches = re.findall(r":([A-Z_]+):", original_text)
-                    direct_matches.extend([f":{tag}:" for tag in tag_matches])
-
-                    st.write(f"  🎯 Found {len(ai_matches)} AI placeholders, {len(direct_matches)} direct placeholders")
-
-                    if not direct_matches and not ai_matches:
-                        processed += 1
-                        progress.progress(processed / max(total_targets, 1))
-                        continue
-
-                    new_text = original_text
-
-                    for placeholder in direct_matches:
-                        replacement = process_placeholder(
-                            placeholder,
-                            row_data,
-                            excel_columns,
-                            beta_tone,
-                            missing_to_blank,
-                            data_dict,
-                            placeholder_mapping,
-                            excel_format,
-                            module_type,
-                        )
-                        new_text = new_text.replace(f"[{placeholder}]", replacement)
-                        # Also handle :TAG: format
-                        if placeholder.startswith(':') and placeholder.endswith(':'):
-                            new_text = new_text.replace(placeholder, replacement)
-
-                    for ai_prompt in ai_matches:
-                        status.text(f"🤖 Generating text: {ai_prompt[:60]}...")
-                        replacement = process_placeholder(
-                            f"AI: {ai_prompt}",
-                            row_data,
-                            excel_columns,
-                            beta_tone,
-                            missing_to_blank,
-                            data_dict,
-                            placeholder_mapping,
-                            excel_format,
-                            module_type,
-                        )
-                        st.write(f"DEBUG: Original=[AI: {ai_prompt}], Replacement={replacement[:100]}")
-                        new_text = new_text.replace(f"[AI: {ai_prompt}]", replacement)
-
-                    if new_text != original_text:
-                        text_frame = shape.text_frame
-                        if not text_frame.paragraphs:
-                            shape.text = new_text
-                        else:
-                            para = text_frame.paragraphs[0]
-                            if para.runs:
-                                run0 = para.runs[0]
-                                font = run0.font
-
-                                text_frame.clear()
-                                new_para = text_frame.paragraphs[0]
-                                new_run = new_para.add_run()
-                                new_run.text = new_text
-
-                                if font.size:
-                                    new_run.font.size = font.size
-                                if font.name:
-                                    new_run.font.name = font.name
-                                if font.bold is not None:
-                                    new_run.font.bold = font.bold
-                                if font.italic is not None:
-                                    new_run.font.italic = font.italic
-                                if font.color and hasattr(font.color, 'rgb'):
-                                    new_run.font.color.rgb = font.color.rgb
-
-                                new_para.alignment = para.alignment
-                                new_para.level = para.level
-                            else:
-                                shape.text = new_text
-
-                    processed += 1
-                    progress.progress(processed / max(total_targets, 1))
-
+            
+            def progress_callback(current, total):
+                progress.progress(current / max(total, 1))
+            
+            stats = fill_pptx(
+                prs=prs,
+                row_data=row_data,
+                excel_columns=excel_columns,
+                beta_tone=beta_tone,
+                missing_to_blank=missing_to_blank,
+                data_dict=data_dict,
+                placeholder_mapping=placeholder_mapping,
+                excel_format=excel_format,
+                module_type=module_type,
+                progress_callback=progress_callback
+            )
+            
             progress.progress(1.0)
             status.text("✅ Done")
+            
+            logger.info(f"Generation complete: {stats}")
+            st.info(f"📊 **Statistics**: "
+                   f"{stats['ai_generated']} AI texts generated, "
+                   f"{stats['direct_replaced']} direct replacements, "
+                   f"{stats['tags_replaced']} tags replaced")
 
+            # Save and offer download
             output = BytesIO()
             prs.save(output)
             output.seek(0)
@@ -1341,7 +362,12 @@ if template_file and excel_file:
                     "presentationml.presentation"
                 ),
             )
+            
+            logger.info("PPTX download ready")
 
         except Exception as e:
             st.error(f"Error generating PPTX: {e}")
+            logger.error(f"Generation error: {e}", exc_info=True)
             st.exception(e)
+
+logger.info("UI render complete")

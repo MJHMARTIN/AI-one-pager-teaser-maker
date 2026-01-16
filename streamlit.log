@@ -1,176 +1,93 @@
-nohup: ignoring input
 
   You can now view your Streamlit app in your browser.
 
   URL: http://0.0.0.0:8501
 
-2026-01-08 05:51:37.921 Please replace `use_container_width` with `width`.
+2026-01-16 06:31:18,149 - __main__ - INFO - Application started
+2026-01-16 06:31:18,152 - __main__ - INFO - UI render complete
+2026-01-16 06:37:20,057 - __main__ - INFO - Application started
+2026-01-16 06:37:20,082 - __main__ - INFO - UI render complete
+2026-01-16 06:38:02,543 - __main__ - INFO - Application started
+2026-01-16 06:38:02,567 - __main__ - INFO - Reading Excel file: DCG FAKE DATA 1 DIA_Module 1_Real Estate Hospitality .xlsm
+2026-01-16 06:38:06,012 - __main__ - INFO - Multi-sheet mode: 7 sheets
+2026-01-16 06:38:06.014 Please replace `use_container_width` with `width`.
 
 `use_container_width` will be removed after 2025-12-31.
 
 For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
-2026-01-08 05:51:43.252 Please replace `use_container_width` with `width`.
-
-`use_container_width` will be removed after 2025-12-31.
-
-For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
-2026-01-08 05:51:47.824 Please replace `use_container_width` with `width`.
-
-`use_container_width` will be removed after 2025-12-31.
-
-For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
-2026-01-08 05:52:31.600 Please replace `use_container_width` with `width`.
-
-`use_container_width` will be removed after 2025-12-31.
-
-For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
-2026-01-08 05:52:37.845 Please replace `use_container_width` with `width`.
-
-`use_container_width` will be removed after 2025-12-31.
-
-For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
-2026-01-08 05:52:41.328 Please replace `use_container_width` with `width`.
-
-`use_container_width` will be removed after 2025-12-31.
-
-For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
-2026-01-08 05:52:42.029 Please replace `use_container_width` with `width`.
-
-`use_container_width` will be removed after 2025-12-31.
-
-For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
-2026-01-08 05:52:49.520 Please replace `use_container_width` with `width`.
-
-`use_container_width` will be removed after 2025-12-31.
-
-For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
-2026-01-08 06:04:09.487 Please replace `use_container_width` with `width`.
-
-`use_container_width` will be removed after 2025-12-31.
-
-For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
-2026-01-08 06:04:09.714 Please replace `use_container_width` with `width`.
-
-`use_container_width` will be removed after 2025-12-31.
-
-For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
-2026-01-08 06:04:48.393 Please replace `use_container_width` with `width`.
-
-`use_container_width` will be removed after 2025-12-31.
-
-For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
-2026-01-08 06:09:18.713 Please replace `use_container_width` with `width`.
-
-`use_container_width` will be removed after 2025-12-31.
-
-For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
-2026-01-08 06:09:23.169 Please replace `use_container_width` with `width`.
-
-`use_container_width` will be removed after 2025-12-31.
-
-For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
-2026-01-08 06:09:24.213 Please replace `use_container_width` with `width`.
-
-`use_container_width` will be removed after 2025-12-31.
-
-For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
-2026-01-08 06:09:28.449 Please replace `use_container_width` with `width`.
-
-`use_container_width` will be removed after 2025-12-31.
-
-For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
-2026-01-08 06:12:51.428 Please replace `use_container_width` with `width`.
-
-`use_container_width` will be removed after 2025-12-31.
-
-For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
-2026-01-08 06:13:16.300 Please replace `use_container_width` with `width`.
-
-`use_container_width` will be removed after 2025-12-31.
-
-For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
-2026-01-08 06:13:42.569 Please replace `use_container_width` with `width`.
-
-`use_container_width` will be removed after 2025-12-31.
-
-For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
-2026-01-08 06:13:55.542 Please replace `use_container_width` with `width`.
-
-`use_container_width` will be removed after 2025-12-31.
-
-For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
-2026-01-08 06:24:19.339 Please replace `use_container_width` with `width`.
-
-`use_container_width` will be removed after 2025-12-31.
-
-For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
-2026-01-08 06:25:51.388 Please replace `use_container_width` with `width`.
-
-`use_container_width` will be removed after 2025-12-31.
-
-For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
-2026-01-08 06:26:05.422 Please replace `use_container_width` with `width`.
-
-`use_container_width` will be removed after 2025-12-31.
-
-For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
-2026-01-08 06:27:02.306 Please replace `use_container_width` with `width`.
-
-`use_container_width` will be removed after 2025-12-31.
-
-For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
-2026-01-08 06:27:33.887 Please replace `use_container_width` with `width`.
-
-`use_container_width` will be removed after 2025-12-31.
-
-For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
-2026-01-08 06:27:41.181 Please replace `use_container_width` with `width`.
-
-`use_container_width` will be removed after 2025-12-31.
-
-For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
-2026-01-08 06:27:48.089 Please replace `use_container_width` with `width`.
-
-`use_container_width` will be removed after 2025-12-31.
-
-For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
-2026-01-08 06:29:39.171 Please replace `use_container_width` with `width`.
-
-`use_container_width` will be removed after 2025-12-31.
-
-For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
-2026-01-08 06:30:04.214 Please replace `use_container_width` with `width`.
-
-`use_container_width` will be removed after 2025-12-31.
-
-For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
-2026-01-08 06:30:49.863 Please replace `use_container_width` with `width`.
-
-`use_container_width` will be removed after 2025-12-31.
-
-For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
-2026-01-08 06:31:11.183 Please replace `use_container_width` with `width`.
-
-`use_container_width` will be removed after 2025-12-31.
-
-For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
-2026-01-08 06:31:49.526 Please replace `use_container_width` with `width`.
-
-`use_container_width` will be removed after 2025-12-31.
-
-For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
-2026-01-08 06:32:17.929 Please replace `use_container_width` with `width`.
-
-`use_container_width` will be removed after 2025-12-31.
-
-For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
-2026-01-08 06:32:32.750 Please replace `use_container_width` with `width`.
-
-`use_container_width` will be removed after 2025-12-31.
-
-For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
-2026-01-08 06:40:43.960 Please replace `use_container_width` with `width`.
-
-`use_container_width` will be removed after 2025-12-31.
-
-For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-01-16 06:38:06,205 - excel_loader - INFO - Reading multi-sheet Excel file with search-based approach
+2026-01-16 06:38:08,124 - excel_loader - INFO - Found 7 sheets
+2026-01-16 06:38:08,125 - excel_loader - INFO - Processing sheet 'notes' (shape: (13, 4))
+2026-01-16 06:38:08,126 - excel_loader - INFO - Extracted 0 label-value pairs from sheet 'notes'
+2026-01-16 06:38:08,126 - excel_loader - WARNING - Sheet 'notes': no data extracted
+2026-01-16 06:38:08,126 - excel_loader - INFO - Processing sheet 'Disclaimer' (shape: (3, 2))
+2026-01-16 06:38:08,126 - excel_loader - INFO - Extracted 0 label-value pairs from sheet 'Disclaimer'
+2026-01-16 06:38:08,126 - excel_loader - WARNING - Sheet 'Disclaimer': no data extracted
+2026-01-16 06:38:08,126 - excel_loader - INFO - Processing sheet 'Introduction ' (shape: (3, 2))
+2026-01-16 06:38:08,127 - excel_loader - INFO - Extracted 0 label-value pairs from sheet 'Introduction '
+2026-01-16 06:38:08,127 - excel_loader - WARNING - Sheet 'Introduction ': no data extracted
+2026-01-16 06:38:08,127 - excel_loader - INFO - Processing sheet 'Program' (shape: (25, 9))
+2026-01-16 06:38:08,136 - excel_loader - INFO - Extracted 62 label-value pairs from sheet 'Program'
+2026-01-16 06:38:08,136 - excel_loader - INFO - ✓ Sheet 'Program': 62 fields extracted
+2026-01-16 06:38:08,136 - excel_loader - INFO - Processing sheet 'Project' (shape: (117, 9))
+2026-01-16 06:38:08,173 - excel_loader - INFO - Extracted 262 label-value pairs from sheet 'Project'
+2026-01-16 06:38:08,174 - excel_loader - INFO - ✓ Sheet 'Project': 262 fields extracted
+2026-01-16 06:38:08,174 - excel_loader - INFO - Processing sheet 'Asset' (shape: (31, 16377))
+2026-01-16 06:38:17,939 - excel_loader - INFO - Extracted 70 label-value pairs from sheet 'Asset'
+2026-01-16 06:38:17,939 - excel_loader - INFO - ✓ Sheet 'Asset': 70 fields extracted
+2026-01-16 06:38:17,940 - excel_loader - INFO - Processing sheet 'Submission Confirmation' (shape: (3, 2))
+2026-01-16 06:38:17,940 - excel_loader - INFO - Extracted 0 label-value pairs from sheet 'Submission Confirmation'
+2026-01-16 06:38:17,940 - excel_loader - WARNING - Sheet 'Submission Confirmation': no data extracted
+2026-01-16 06:38:17,941 - excel_loader - INFO - Search-based parsing complete: 318 total fields from 7 sheets
+2026-01-16 06:38:17,943 - __main__ - INFO - Parsed 318 fields from multi-sheet Excel
+2026-01-16 06:38:17,954 - __main__ - INFO - Loaded PPTX with 1 slides
+2026-01-16 06:38:17,955 - __main__ - INFO - UI render complete
+2026-01-16 07:23:31,684 - __main__ - INFO - Application started
+2026-01-16 07:23:31,697 - __main__ - INFO - UI render complete
+2026-01-16 07:23:54,713 - __main__ - INFO - Application started
+2026-01-16 07:23:54,716 - __main__ - INFO - UI render complete
+2026-01-16 07:24:19.173 Uncaught app execution
+Traceback (most recent call last):
+  File "/home/vscode/.local/lib/python3.11/site-packages/streamlit/runtime/scriptrunner/exec_code.py", line 129, in exec_func_with_error_handling
+    result = func()
+             ^^^^^^
+  File "/home/vscode/.local/lib/python3.11/site-packages/streamlit/runtime/scriptrunner/script_runner.py", line 671, in code_to_exec
+    exec(code, module.__dict__)  # noqa: S102
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/codespaces-blank/app.py", line 14, in <module>
+    from module_detector import detect_module_type
+  File "/workspaces/codespaces-blank/module_detector.py", line 7, in <module>
+    from field_mapping import get_module_field_mappings
+  File "/workspaces/codespaces-blank/field_mapping.py", line 294
+    return data_dict[matches[0]]
+IndentationError: unexpected indent
+2026-01-16 07:27:08.086 Uncaught app execution
+Traceback (most recent call last):
+  File "/home/vscode/.local/lib/python3.11/site-packages/streamlit/runtime/scriptrunner/exec_code.py", line 129, in exec_func_with_error_handling
+    result = func()
+             ^^^^^^
+  File "/home/vscode/.local/lib/python3.11/site-packages/streamlit/runtime/scriptrunner/script_runner.py", line 671, in code_to_exec
+    exec(code, module.__dict__)  # noqa: S102
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/codespaces-blank/app.py", line 14, in <module>
+    from module_detector import detect_module_type
+  File "/workspaces/codespaces-blank/module_detector.py", line 7, in <module>
+    from field_mapping import get_module_field_mappings
+  File "/workspaces/codespaces-blank/field_mapping.py", line 294
+    return data_dict[matches[0]]
+IndentationError: unexpected indent
+2026-01-16 07:27:08.229 Uncaught app execution
+Traceback (most recent call last):
+  File "/home/vscode/.local/lib/python3.11/site-packages/streamlit/runtime/scriptrunner/exec_code.py", line 129, in exec_func_with_error_handling
+    result = func()
+             ^^^^^^
+  File "/home/vscode/.local/lib/python3.11/site-packages/streamlit/runtime/scriptrunner/script_runner.py", line 671, in code_to_exec
+    exec(code, module.__dict__)  # noqa: S102
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/codespaces-blank/app.py", line 14, in <module>
+    from module_detector import detect_module_type
+  File "/workspaces/codespaces-blank/module_detector.py", line 7, in <module>
+    from field_mapping import get_module_field_mappings
+  File "/workspaces/codespaces-blank/field_mapping.py", line 294
+    return data_dict[matches[0]]
+IndentationError: unexpected indent

@@ -1,9 +1,9 @@
 [server]
-# Enable CORS for development and codespaces
-enableCORS = true
-enableXsrfProtection = true
+# Disable CORS and XSRF for GitHub Codespaces compatibility
+enableCORS = false
+enableXsrfProtection = false
 
-# Server address configuration
+# Server address configuration - bind to all interfaces
 headless = true
 port = 8501
 address = "0.0.0.0"

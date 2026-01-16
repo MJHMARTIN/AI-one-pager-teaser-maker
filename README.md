@@ -1,15 +1,16 @@
 # 📊 AI One-Pager Teaser Maker
 
-**Generate professional PowerPoint presentations with AI-powered content — no API key required!**
+**Generate professional PowerPoint presentations with AI-powered content using Perplexity API!**
 
-This Streamlit web app automatically fills PPTX templates with data from Excel files and generates compelling teaser text using smart local AI. Perfect for creating investor one-pagers, deal teasers, company profiles, and marketing materials at scale.
+This Streamlit web app automatically fills PPTX templates with data from Excel files and generates compelling teaser text using Perplexity's advanced language models. Perfect for creating investor one-pagers, deal teasers, company profiles, and marketing materials at scale.
 
 ## ✨ Key Features
 
-- **🤖 Smart Local AI** — No API keys, no costs, completely free intelligent text generation
+- **🤖 Perplexity API Integration** — Advanced AI-powered text generation with intelligent fallback
   - 3-paragraph Project Highlights
   - 2-3 word sector labels
   - Anonymous client one-liners
+  - Context-aware, professional business writing
 - **📊 Flexible Excel Support**
   - Column-based format (traditional)
   - Row-based Label/Value pairs
@@ -26,6 +27,23 @@ This Streamlit web app automatically fills PPTX templates with data from Excel f
 - **💾 Instant Download** — Get your filled PPTX file immediately
 
 ## Quick Start
+
+### 🚀 GitHub Codespaces (Automatic!)
+
+**The app auto-starts when you open this Codespace!**
+
+1. **Check the Ports tab** (bottom panel in VS Code)
+2. **Find port 8501** labeled "AI Teaser Maker App" 
+3. **Click the globe icon** or the forwarded URL
+4. **Use that URL** — don't bookmark old URLs; always use the fresh one from Ports tab
+
+**If you see a 502 error:**
+```bash
+bash restart.sh
+```
+Then refresh the Ports tab and use the new URL shown there.
+
+### 💻 Local Development
 
 **To start the app (recommended):**
 ```bash
@@ -49,16 +67,58 @@ pip install -r requirements.txt
 
 The app will be available at: **http://localhost:8501**
 
+---
+
+## 🔧 Port 502 / Connection Issues in Codespaces?
+
+The app is configured to **automatically start and stay alive** in GitHub Codespaces. But if you encounter 502 errors:
+
+### Quick Fix (30 seconds)
+```bash
+bash restart.sh
+```
+
+Then **always check the Ports tab** (View → Ports) for the current forwarded URL. Don't reuse old bookmarked URLs!
+
+### What's Happening
+- Streamlit is configured to bind to `0.0.0.0:8501` (see [.streamlit/config.toml](.streamlit/config.toml))
+- Port forwarding is set to **public** visibility (see [.devcontainer/devcontainer.json](.devcontainer/devcontainer.json))
+- Monitoring script (`monitor.sh`) auto-restarts if the process dies
+- Auto-start script (`auto-start.sh`) launches on Codespace creation
+
+### If Still Not Working
+1. **Kill everything and restart:**
+   ```bash
+   pkill -f streamlit
+   bash restart.sh
+   ```
+
+2. **Check if it's running:**
+   ```bash
+   lsof -i :8501
+   # Should show: streamlit ... *:8501 (LISTEN)
+   ```
+
+3. **View logs:**
+   ```bash
+   tail -f streamlit.log
+   ```
+
+4. **Last resort** — Stop and restart the entire Codespace from GitHub.
+
+---
+
 ## Troubleshooting
 
-### Port 8501 not working?
-- Run `bash restart.sh` - this will kill any stuck process and restart cleanly
-- Or manually: `lsof -ti :8501 | xargs kill -9` then `bash start.sh`
+### App won't load / Python errors?
+- Make sure dependencies are installed: `pip install -r requirements.txt`
+- Check the terminal logs for specific error messages
+- Ensure you're using Python 3.8+: `python --version`
 
-### For Codespaces users:
-- After starting, click "Open in Browser" when the port forwarding notification appears
-- Or go to the "Ports" tab and click the globe icon next to port 8501
-- The app auto-starts when you open the Codespace!
+### Upload issues?
+- Ensure Excel file is .xlsx or .xlsm format (not .xls)
+- Check that your Excel file isn't corrupted
+- Try creating a simple test file with just a few rows/columns
 
 ## 📋 What You Need
 
